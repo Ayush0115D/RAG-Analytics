@@ -114,14 +114,17 @@ export async function getStore() {
 
   try {
     const client = new ChromaClient({ path: `http://localhost:${CHROMA_PORT}` });
-    await client.heartbeat();
+    await Promise.race([
+      client.heartbeat(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 2000)),
+    ]);
     const cs = new ChromaStore(client);
     await cs.init();
     store = cs;
     console.log("Using ChromaDB server");
-  } catch {
+  } catch (e) {
+    console.log("ChromaDB unavailable (" + e.message + "), using in-memory");
     store = new InMemoryStore();
-    console.log("ChromaDB not available, using in-memory store");
   }
 
   return store;
