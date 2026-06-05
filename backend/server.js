@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { getYouTubeData } from "./services/youtube.js";
+import { getInstagramData } from "./services/instagram.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -23,6 +24,19 @@ app.post("/api/youtube", async (req, res) => {
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     const data = await getYouTubeData(url);
+    if (video_id) data.metadata.video_id = video_id;
+    res.json(data);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/instagram", async (req, res) => {
+  try {
+    const { url, video_id } = req.body;
+    if (!url) return res.status(400).json({ error: "URL is required" });
+
+    const data = await getInstagramData(url);
     if (video_id) data.metadata.video_id = video_id;
     res.json(data);
   } catch (err) {
