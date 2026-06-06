@@ -65,34 +65,50 @@ class PineconeStore {
       },
     }));
 
-    // Batch in groups of 100
-    for (let i = 0; i < vectors.length; i += 100) {
-      await this.index.upsert(vectors.slice(i, i + 100));
+    try {
+      for (let i = 0; i < vectors.length; i += 100) {
+        await this.index.upsert({ records: vectors.slice(i, i + 100) });
+      }
+      console.log(`Pinecone: upserted ${vectors.length} vectors`);
+    } catch (e) {
+      console.error("Pinecone upsert failed:", e.message);
     }
 
     return vectors.length;
   }
 
   async query(queryEmbedding, topK = 5) {
-    const result = await this.index.query({
-      vector: queryEmbedding,
-      topK,
-      includeMetadata: true,
-    });
+    try {
+      const result = await this.index.query({
+        vector: queryEmbedding,
+        topK,
+        includeMetadata: true,
+      });
 
-    return result.matches.map((m) => ({
-      id: m.id,
-      text: m.metadata.text,
-      video_id: m.metadata.video_id,
-      offset: m.metadata.offset,
-      index: m.metadata.index,
-      score: m.score,
-    }));
+      console.log(`Pinecone: query returned ${result.matches.length} matches`);
+
+      return result.matches.map((m) => ({
+        id: m.id,
+        text: m.metadata.text,
+        video_id: m.metadata.video_id,
+        offset: m.metadata.offset,
+        index: m.metadata.index,
+        score: m.score,
+      }));
+    } catch (e) {
+      console.error("Pinecone query failed:", e.message);
+      return [];
+    }
   }
 
   async count() {
-    const stats = await this.index.describeIndexStats();
-    return stats.totalRecordCount || 0;
+    try {
+      const stats = await this.index.describeIndexStats();
+      return stats.totalRecordCount || 0;
+    } catch (e) {
+      console.error("Pinecone count failed:", e.message);
+      return 0;
+    }
   }
 
   async deleteAll() {
@@ -110,10 +126,16 @@ export async function getStore() {
   if (process.env.PINECONE_API_KEY) {
     try {
       const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
-      const index = pc.index(PINECONE_INDEX);
+
+      // Fetch the host URL for serverless indexes
+      const indexDescription = await pc.describeIndex(PINECONE_INDEX);
+      const host = indexDescription.host;
+      console.log(`Pinecone: resolved host for "${PINECONE_INDEX}"`);
+
+      const index = pc.index(PINECONE_INDEX, host);
       await index.describeIndexStats();
       store = new PineconeStore(index);
-      console.log("Using Pinecone vector DB");
+      console.log(`Using Pinecone vector DB (${host})`);
     } catch (e) {
       console.error("Pinecone init failed:", e.message);
       store = new InMemoryStore();
