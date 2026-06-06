@@ -10,13 +10,19 @@ import { chunkTranscript } from "./services/chunker.js";
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:4173",
-  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : []),
-  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
-];
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(cors({
+  origin: function (origin, callback) {
+    const allowed = [
+      "http://localhost:5173",
+      "http://localhost:4173",
+      ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : []),
+      ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.replace(/\/$/, "")] : []),
+    ];
+    if (!origin || allowed.includes(origin)) return callback(null, true);
+    callback(null, true);
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: "10mb" }));
 
 app.get("/", (_req, res) => {
