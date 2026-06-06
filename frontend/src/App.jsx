@@ -215,6 +215,7 @@ function ChatPanel({ disabled, hasBoth }) {
 }
 
 export default function App() {
+  const [darkMode, setDarkMode] = useState(true);
   const [ytUrl, setYtUrl] = useState("");
   const [igUrl, setIgUrl] = useState("");
   const [videoA, setVideoA] = useState(null);
@@ -250,29 +251,70 @@ export default function App() {
 
   const hasBoth = !!(videoA && videoB);
 
+  useEffect(() => {
+    document.documentElement.classList.toggle("light", !darkMode);
+  }, [darkMode]);
+
+  const theme = darkMode ? "dark" : "light";
+
   return (
     <div className="max-w-[1280px] mx-auto p-6">
 
-      {/* Dashboard Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold text-sm">R</div>
-          <div>
-            <h1 className="text-lg font-semibold text-slate-100 m-0">RAG Analytics</h1>
-            <p className="text-xs text-slate-500 m-0 mt-0.5">Video Comparison Dashboard</p>
-          </div>
+      {/* Hero Header */}
+      <div className="card text-center px-8 py-8 mb-8 relative">
+        <div className="absolute top-4 right-4 flex items-center gap-2">
+          <span className="text-xs text-slate-500">{darkMode ? "Dark" : "Light"}</span>
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            className="btn-icon"
+            title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {darkMode ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="5"/>
+                <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+            )}
+          </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-center gap-4 mb-4">
+          <div className="shrink-0">
+            <svg width="44" height="44" viewBox="0 0 32 32" fill="none">
+              <defs>
+                <linearGradient id="logo-grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#06b6d4"/>
+                  <stop offset="1" stop-color="#3b82f6"/>
+                </linearGradient>
+              </defs>
+              <rect width="32" height="32" rx="8" fill="url(#logo-grad)"/>
+              <path d="M12 9.5v13l10-6.5z" fill="#fff"/>
+            </svg>
+          </div>
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-300 via-cyan-200 to-blue-300 bg-clip-text text-transparent m-0">
+            RAG Analytics
+          </h1>
+        </div>
+        <p className="text-sm text-slate-400 m-0 mt-2 max-w-lg mx-auto leading-relaxed">
+          Compare YouTube and Instagram Reels side by side — extract transcripts, 
+          analyze engagement, and get AI-driven insights in real time.
+        </p>
+        <div className="flex items-center justify-center gap-2 mt-4">
           <span className="badge badge-cyan">YouTube</span>
-          <span className="badge badge-cyan">Instagram</span>
-          <span className="badge badge-cyan">Gemini AI</span>
+          <span className="badge badge-cyan">Instagram Reels</span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
 
         {/* YouTube Input */}
-        <div className="card">
+        <div className="card card-entrance">
           <div className="card-header">
             <h2 className="text-sm font-semibold text-slate-200 m-0">YouTube</h2>
           </div>
@@ -294,7 +336,7 @@ export default function App() {
         </div>
 
         {/* Instagram Input */}
-        <div className="card">
+        <div className="card card-entrance">
           <div className="card-header">
             <h2 className="text-sm font-semibold text-slate-200 m-0">Instagram</h2>
           </div>
@@ -312,24 +354,24 @@ export default function App() {
                 {loadingB ? <Spinner /> : "Fetch"}
               </button>
             </div>
-            <details className="mt-3">
-              <summary className="text-xs text-cyan-400/70 cursor-pointer hover:text-cyan-300 transition-colors">
-                Instagram setup guide
+            <details className="mt-3 group">
+              <summary className="text-xs text-cyan-300 cursor-pointer hover:text-cyan-200 transition-colors font-medium">
+                ⚙ Instagram setup guide
               </summary>
-              <div className="mt-2.5 p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-400 space-y-1.5 leading-relaxed">
-                <p className="m-0 text-slate-300 font-medium">Instagram blocks anonymous requests. To fix:</p>
-                <ol className="m-0 pl-4 space-y-1">
+              <div className="mt-2.5 p-4 rounded-lg bg-slate-900/80 border border-slate-700/60 text-xs text-slate-300 space-y-2 leading-relaxed">
+                <p className="m-0 text-slate-100 font-medium text-sm">Instagram blocks anonymous requests. To fix:</p>
+                <ol className="m-0 pl-4 space-y-1.5 text-slate-300">
                   <li>Log into Instagram in Chrome</li>
                   <li>
-                    Install "Get cookies.txt" extension from 
-                    <a href="https://chrome.google.com/webstore/detail/get-cookiestxt/bgaddhkoddajcdgocldbbfleckgcbcid" target="_blank" rel="noopener noreferrer" className="text-cyan-400 ml-1">Chrome Web Store</a>
+                    Install "Get cookies.txt" extension → 
+                    <a href="https://chrome.google.com/webstore/detail/get-cookiestxt/bgaddhkoddajcdgocldbbfleckgcbcid" target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:text-cyan-200 ml-1 underline">Chrome Web Store</a>
                   </li>
-                  <li>Go to instagram.com, click the extension icon → "Export" → save as <code className="text-cyan-400 bg-slate-800 px-1 rounded">instagram_cookies.txt</code></li>
-                  <li>Place the file in the <code className="text-cyan-400 bg-slate-800 px-1 rounded">backend/</code> folder</li>
-                  <li>In <code className="text-cyan-400 bg-slate-800 px-1 rounded">backend/.env</code>, add: <code className="text-cyan-400 bg-slate-800 px-1 rounded">INSTAGRAM_COOKIES_FILE=instagram_cookies.txt</code></li>
+                  <li>Go to instagram.com → click extension icon → "Export" → save as <code className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">instagram_cookies.txt</code></li>
+                  <li>Place the file in the <code className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">backend/</code> folder</li>
+                  <li>In <code className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">backend/.env</code>, add: <code className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">INSTAGRAM_COOKIES_FILE=instagram_cookies.txt</code></li>
                   <li>Save and restart the backend server</li>
                 </ol>
-                <p className="m-0 pt-1 text-slate-500">No browser extension needed? Set <code className="text-cyan-400 bg-slate-800 px-1 rounded">INSTAGRAM_BROWSER=chrome</code> in .env instead.</p>
+                <p className="m-0 pt-1 text-slate-400">No browser extension? Set <code className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">INSTAGRAM_BROWSER=chrome</code> in .env instead (local only).</p>
               </div>
             </details>
           </div>
@@ -345,8 +387,8 @@ export default function App() {
       {/* Chat */}
       <ChatPanel disabled={!(videoA || videoB)} hasBoth={hasBoth} />
 
-      <footer className="text-center mt-6 pb-4">
-        <p className="text-xs text-slate-600">RAG Chatbot · Gemini · ChromaDB · LangChain</p>
+      <footer className="text-center mt-8 pb-4">
+        <p className="text-xs text-slate-600">RAG Analytics</p>
       </footer>
     </div>
   );
