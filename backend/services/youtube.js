@@ -1,4 +1,5 @@
 import { YoutubeTranscript } from "youtube-transcript";
+import ytdl from "@distube/ytdl-core";
 import axios from "axios";
 
 function extractVideoId(url) {
@@ -138,7 +139,6 @@ export async function getYouTubeData(url) {
   }
 
   let transcript = [];
-  // Try multiple methods to get transcript
   const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
   // Method 1: youtube-transcript package
@@ -151,58 +151,47 @@ export async function getYouTubeData(url) {
     }));
     console.log(`YouTube transcript: ${transcript.length} entries (method 1)`);
   } catch {
-    // Method 2: Scrape transcript from YouTube page directly
+    // Method 2: ytdl-core (more reliable on servers)
     try {
-      console.log("Trying transcript method 2 (page scrape)...");
-      const { data: html } = await axios.get(`https://www.youtube.com/watch?v=${videoId}`, {
-        headers: { "User-Agent": ua, "Accept-Language": "en-US" },
-      });
-
-      // Try to extract caption tracks
-      const captionsMatch = html.match(/"captionTracks"\s*:\s*(\[.+?\])/);
-      if (captionsMatch) {
-        const tracks = JSON.parse(captionsMatch[1]);
+      console.log("Trying transcript method 2 (ytdl-core)...");
+      const info = await ytdl.getInfo(videoId, { requestOptions: { headers: { "User-Agent": ua } } });
+      const tracks = info.player_response?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+      if (tracks?.length > 0) {
         const track = tracks.find((t) => t.languageCode === "en") || tracks[0];
-        if (track?.baseUrl) {
-          const { data: captionsXml } = await axios.get(track.baseUrl, {
-            headers: { "User-Agent": ua },
-          });
-          const textMatches = captionsXml.match(/<text[^>]*>([^<]*)<\/text>/g);
-          if (textMatches) {
-            transcript = textMatches.map((m, i) => ({
-              text: m.replace(/<text[^>]*>/, "").replace(/<\/text>/, "").replace(/&#39;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">"),
-              offset: i * 5000,
-              dur: 5000,
-            }));
-            console.log(`YouTube transcript: ${transcript.length} entries (method 2)`);
-          }
-        }
+        const resp = await fetch(track.baseUrl, { headers: { "User-Agent": ua } });
+        const xml = await resp.text();
+        const textMatches = xml.match(/<text[^>]*>([^<]*)<\/text>/g) || [];
+        transcript = textMatches.map((m, i) => ({
+          text: m.replace(/<text[^>]*>/, "").replace(/<\/text>/, "")
+            .replace(/&#39;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"'),
+          offset: i * 5000,
+          dur: 5000,
+        }));
+        console.log(`YouTube transcript: ${transcript.length} entries (method 2)`);
       }
-    } catch {}
+    } catch (e2) { console.warn("Method 2 failed:", e2.message); }
 
     // Method 3: youtubetranscript.com API
     if (transcript.length === 0) {
       try {
         console.log("Trying transcript method 3 (youtubetranscript.com)...");
         const { data } = await axios.get(`https://youtubetranscript.com/?v=${videoId}`, {
-          headers: { "User-Agent": ua },
-          timeout: 10000,
+          headers: { "User-Agent": ua }, timeout: 10000,
         });
         if (data && typeof data === "string") {
           const lines = data.split("\n").filter((l) => l.trim());
           transcript = lines.map((line) => {
             const m = line.match(/^\[(\d+)\s*s\]\s*(.+)$/);
-            return m
-              ? { text: m[2], offset: parseInt(m[1]) * 1000, dur: 0 }
-              : { text: line.trim(), offset: 0, dur: 0 };
+            return m ? { text: m[2], offset: parseInt(m[1]) * 1000, dur: 0 }
+                     : { text: line.trim(), offset: 0, dur: 0 };
           });
           console.log(`YouTube transcript: ${transcript.length} entries (method 3)`);
         }
       } catch {}
-    }
 
-    if (transcript.length === 0) {
-      console.warn(`YouTube transcript: all methods failed for ${videoId}`);
+      if (transcript.length === 0) {
+        console.warn(`YouTube transcript: all 3 methods failed for ${videoId}`);
+      }
     }
   }
 
