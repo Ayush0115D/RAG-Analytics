@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { getYouTubeData } from "./services/youtube.js";
-import { getInstagramData } from "./services/instagram.js";
+import { getInstagramData, ensureYtDlp } from "./services/instagram.js";
 import { getStore } from "./services/vectorstore.js";
 import { embedChunks, embedQuery } from "./services/embeddings.js";
 import { chunkTranscript } from "./services/chunker.js";
@@ -126,6 +126,15 @@ Question: ${question}`;
   res.end();
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+async function start() {
+  try {
+    await ensureYtDlp();
+    console.log("yt-dlp ready");
+  } catch (e) {
+    console.warn("yt-dlp download failed:", e.message);
+  }
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+start();

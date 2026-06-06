@@ -41,7 +41,12 @@ function extractReelId(url) {
 }
 
 async function findYtDlp() {
-  if (fs.existsSync(YTDLP_PATH)) return YTDLP_PATH;
+  if (fs.existsSync(YTDLP_PATH)) {
+    const stat = fs.statSync(YTDLP_PATH);
+    if (stat.size > 1024 * 1024) return YTDLP_PATH;
+    console.log(`yt-dlp binary too small (${stat.size} bytes), re-downloading...`);
+    fs.unlinkSync(YTDLP_PATH);
+  }
 
   for (const name of ["yt-dlp", "yt-dlp.exe"]) {
     try {
@@ -102,9 +107,16 @@ async function transcribeAudio(audioPath, durationSec) {
   }
 }
 
+let _ytDlpPath = null;
+export async function ensureYtDlp() {
+  if (!_ytDlpPath) _ytDlpPath = await findYtDlp();
+  return _ytDlpPath;
+}
+
 export async function getInstagramData(url) {
   const reelId = extractReelId(url);
-  const ytDlp = await findYtDlp();
+  if (!_ytDlpPath) _ytDlpPath = await findYtDlp();
+  const ytDlp = _ytDlpPath;
 
   // Build cookie args
   let cookieArgs = [];
