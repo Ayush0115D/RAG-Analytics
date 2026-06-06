@@ -52,7 +52,7 @@ async function findYtDlp() {
 
   const binaryName = IS_WIN ? "yt-dlp.exe" : "yt-dlp";
   const url = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${binaryName}`;
-  console.log(`Downloading yt-dlp (${ext})...`);
+  console.log(`Downloading yt-dlp (${binaryName})...`);
   const { data } = await axios.get(url, { responseType: "stream" });
   const writer = fs.createWriteStream(YTDLP_PATH, { mode: 0o755 });
   data.pipe(writer);
@@ -161,8 +161,8 @@ export async function getInstagramData(url) {
   );
 
   let transcript = [];
+  const tempDir = path.join(__dirname, "..", "temp");
   try {
-    const tempDir = path.join(__dirname, "..", "temp");
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
     const audioPath = path.join(tempDir, `${reelId}.mp3`);
