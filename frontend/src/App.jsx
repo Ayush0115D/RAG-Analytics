@@ -289,8 +289,8 @@ export default function App() {
             <svg width="44" height="44" viewBox="0 0 32 32" fill="none">
               <defs>
                 <linearGradient id="logo-grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#06b6d4"/>
-                  <stop offset="1" stop-color="#3b82f6"/>
+                  <stop stopColor="#06b6d4"/>
+                  <stop offset="1" stopColor="#3b82f6"/>
                 </linearGradient>
               </defs>
               <rect width="32" height="32" rx="8" fill="url(#logo-grad)"/>

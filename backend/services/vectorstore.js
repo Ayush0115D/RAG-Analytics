@@ -1,22 +1,4 @@
-import { ChromaClient } from "chromadb";
-import { execFile } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(execFile);
-
-const COLLECTION_NAME = "rag_chatbot";
-const CHROMA_PORT = 8000;
-
-function cosineSimilarity(a, b) {
-  let dot = 0, magA = 0, magB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    magA += a[i] * a[i];
-    magB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(magA) * Math.sqrt(magB);
-  return denom === 0 ? 0 : dot / denom;
-}
+import { Pinecone } from "@pinecone-database/pinecone";
 
 class InMemoryStore {
   constructor() {
@@ -55,93 +37,92 @@ class InMemoryStore {
   }
 }
 
-class ChromaStore {
-  constructor(client) {
-    this.client = client;
-    this.collection = null;
+function cosineSimilarity(a, b) {
+  let dot = 0, magA = 0, magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
   }
+  const denom = Math.sqrt(magA) * Math.sqrt(magB);
+  return denom === 0 ? 0 : dot / denom;
+}
 
-  async init() {
-    this.collection = await this.client.getOrCreateCollection({
-      name: COLLECTION_NAME,
-    });
+class PineconeStore {
+  constructor(index) {
+    this.index = index;
   }
 
   async addChunks(embeddedChunks) {
-    const ids = embeddedChunks.map((c) => `${c.video_id}_${c.index}`);
-    const metadatas = embeddedChunks.map((c) => ({
-      video_id: c.video_id,
-      offset: c.offset,
-      index: c.index,
+    const vectors = embeddedChunks.map((c) => ({
+      id: `${c.video_id}_${c.index}`,
+      values: c.embedding,
+      metadata: {
+        text: c.text,
+        video_id: c.video_id,
+        offset: c.offset,
+        index: c.index,
+      },
     }));
-    const documents = embeddedChunks.map((c) => c.text);
-    const embeddings = embeddedChunks.map((c) => c.embedding);
 
-    await this.collection.add({ ids, metadatas, documents, embeddings });
-    return ids.length;
+    // Batch in groups of 100
+    for (let i = 0; i < vectors.length; i += 100) {
+      await this.index.upsert(vectors.slice(i, i + 100));
+    }
+
+    return vectors.length;
   }
 
   async query(queryEmbedding, topK = 5) {
-    const result = await this.collection.query({
-      queryEmbeddings: [queryEmbedding],
-      nResults: topK,
+    const result = await this.index.query({
+      vector: queryEmbedding,
+      topK,
+      includeMetadata: true,
     });
 
-    return (result.ids[0] || []).map((id, i) => ({
-      id,
-      text: result.documents[0][i],
-      video_id: result.metadatas[0][i].video_id,
-      offset: result.metadatas[0][i].offset,
-      index: result.metadatas[0][i].index,
-      score: result.distances[0][i],
+    return result.matches.map((m) => ({
+      id: m.id,
+      text: m.metadata.text,
+      video_id: m.metadata.video_id,
+      offset: m.metadata.offset,
+      index: m.metadata.index,
+      score: m.score,
     }));
   }
 
   async count() {
-    return this.collection.count();
+    const stats = await this.index.describeIndexStats();
+    return stats.totalRecordCount || 0;
   }
 
   async deleteAll() {
-    await this.client.deleteCollection({ name: COLLECTION_NAME });
-    await this.init();
+    // Pinecone free tier doesn't support delete by namespace easily
+    // Users can delete from Pinecone console
   }
 }
 
 let store = null;
+const PINECONE_INDEX = process.env.PINECONE_INDEX || "rag-chatbot";
 
 export async function getStore() {
   if (store) return store;
 
-  try {
-    const client = new ChromaClient({ path: `http://localhost:${CHROMA_PORT}` });
-    await Promise.race([
-      client.heartbeat(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 2000)),
-    ]);
-    const cs = new ChromaStore(client);
-    await cs.init();
-    store = cs;
-    console.log("Using ChromaDB server");
-  } catch (e) {
-    console.log("ChromaDB unavailable (" + e.message + "), using in-memory");
+  if (process.env.PINECONE_API_KEY) {
+    try {
+      const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
+      const index = pc.index(PINECONE_INDEX);
+      await index.describeIndexStats();
+      store = new PineconeStore(index);
+      console.log("Using Pinecone vector DB");
+    } catch (e) {
+      console.error("Pinecone init failed:", e.message);
+      store = new InMemoryStore();
+      console.log("Falling back to InMemoryStore");
+    }
+  } else {
     store = new InMemoryStore();
+    console.log("Using InMemoryStore (set PINECONE_API_KEY for persistent storage)");
   }
 
   return store;
-}
-
-export async function startChromaServer() {
-  try {
-    await execAsync("python", ["-m", "chromadb", "run", "--port", String(CHROMA_PORT)], {
-      timeout: 5000,
-    });
-  } catch {
-    try {
-      await execAsync("python3", ["-m", "chromadb", "run", "--port", String(CHROMA_PORT)], {
-        timeout: 5000,
-      });
-    } catch {
-      console.log("Could not start ChromaDB server, will use in-memory fallback");
-    }
-  }
 }

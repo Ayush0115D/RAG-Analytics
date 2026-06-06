@@ -11,17 +11,9 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors({
-  origin: function (origin, callback) {
-    const allowed = [
-      "http://localhost:5173",
-      "http://localhost:4173",
-      ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : []),
-      ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.replace(/\/$/, "")] : []),
-    ];
-    if (!origin || allowed.includes(origin)) return callback(null, true);
-    callback(null, true);
-  },
-  credentials: true,
+  origin: true,
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
 }));
 app.use(express.json({ limit: "10mb" }));
 
@@ -70,6 +62,8 @@ app.post("/api/ingest", async (req, res) => {
     const embedded = await embedChunks(chunks);
     const count = await store.addChunks(embedded);
 
+    console.log(`Ingest ${video_id}: ${chunks.length} chunks created, ${embedded.length} embedded, ${count} total in store`);
+
     res.json({ chunks_created: chunks.length, chunks_stored: count });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -89,6 +83,7 @@ app.post("/api/chat", async (req, res) => {
     const store = await getStore();
     const qe = await embedQuery(question);
     const chunks = await store.query(qe, 5);
+    console.log(`Chat: retrieved ${chunks.length} chunks for question "${question.slice(0, 50)}..."`);
     const context = chunks.map((c) => `[Video ${c.video_id} — Chunk ${c.index}]: ${c.text}`).join("\n\n");
 
     const { GoogleGenerativeAI } = await import("@google/generative-ai");

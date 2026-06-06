@@ -23,6 +23,11 @@ export async function embedChunks(chunks) {
     })
   );
 
+  const rejected = results.filter((r) => r.status === "rejected");
+  if (rejected.length > 0) {
+    console.error("Embedding failures:", rejected.slice(0, 3).map((r) => r.reason));
+  }
+
   return results
     .filter((r) => r.status === "fulfilled")
     .map((r) => r.value);
