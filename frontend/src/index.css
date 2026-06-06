@@ -1,16 +1,19 @@
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
+@import "tailwindcss";
 
 body {
-  margin: 0;
-  background: #f9fafb;
-  color: #111;
-  -webkit-font-smoothing: antialiased;
+  @apply m-0 bg-gray-50 text-gray-900 antialiased;
+  font-family: system-ui, -apple-system, sans-serif;
 }
 
 #root {
-  min-height: 100vh;
+  @apply min-h-screen;
+}
+
+/* Scrollbar */
+.chat-messages::-webkit-scrollbar {
+  width: 6px;
+}
+.chat-messages::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
 }
