@@ -2,8 +2,10 @@ export function chunkTranscript(transcript, videoId, chunkSize = 500, overlap = 
   const chunks = [];
   let current = [];
   let currentLen = 0;
+  let entryIdx = 0;
 
-  for (const entry of transcript) {
+  for (let i = 0; i < transcript.length; i++) {
+    const entry = transcript[i];
     const text = entry.text.trim();
     if (!text) continue;
 
@@ -13,31 +15,26 @@ export function chunkTranscript(transcript, videoId, chunkSize = 500, overlap = 
       currentLen++;
 
       if (currentLen >= chunkSize) {
-        const chunkText = current.join(" ");
-        const startOffset = transcript.find((t) => current.includes(t.text.split(/\s+/)[0]))?.offset ?? 0;
-
         chunks.push({
-          text: chunkText,
+          text: current.join(" "),
           video_id: videoId,
-          offset: startOffset,
+          offset: transcript[entryIdx]?.offset ?? 0,
           index: chunks.length,
         });
 
         const overlapWords = current.slice(-overlap);
         current = [...overlapWords];
         currentLen = overlapWords.length;
+        entryIdx = i;
       }
     }
   }
 
   if (current.length > 0) {
-    const chunkText = current.join(" ");
-    const startOffset = transcript.find((t) => current.includes(t.text.split(/\s+/)[0]))?.offset ?? 0;
-
     chunks.push({
-      text: chunkText,
+      text: current.join(" "),
       video_id: videoId,
-      offset: startOffset,
+      offset: transcript[entryIdx]?.offset ?? 0,
       index: chunks.length,
     });
   }
