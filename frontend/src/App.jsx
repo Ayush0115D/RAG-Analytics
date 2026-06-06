@@ -354,26 +354,7 @@ export default function App() {
                 {loadingB ? <Spinner /> : "Fetch"}
               </button>
             </div>
-            <details className="mt-3 group">
-              <summary className="text-xs text-cyan-300 cursor-pointer hover:text-cyan-200 transition-colors font-medium">
-                ⚙ Instagram setup guide
-              </summary>
-              <div className="mt-2.5 p-4 rounded-lg bg-slate-900/80 border border-slate-700/60 text-xs text-slate-300 space-y-2 leading-relaxed">
-                <p className="m-0 text-slate-100 font-medium text-sm">Instagram blocks anonymous requests. To fix:</p>
-                <ol className="m-0 pl-4 space-y-1.5 text-slate-300">
-                  <li>Log into Instagram in Chrome</li>
-                  <li>
-                    Install "Get cookies.txt" extension → 
-                    <a href="https://chrome.google.com/webstore/detail/get-cookiestxt/bgaddhkoddajcdgocldbbfleckgcbcid" target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:text-cyan-200 ml-1 underline">Chrome Web Store</a>
-                  </li>
-                  <li>Go to instagram.com → click extension icon → "Export" → save as <code className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">instagram_cookies.txt</code></li>
-                  <li>Place the file in the <code className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">backend/</code> folder</li>
-                  <li>In <code className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">backend/.env</code>, add: <code className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">INSTAGRAM_COOKIES_FILE=instagram_cookies.txt</code></li>
-                  <li>Save and restart the backend server</li>
-                </ol>
-                <p className="m-0 pt-1 text-slate-400">No browser extension? Set <code className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">INSTAGRAM_BROWSER=chrome</code> in .env instead (local only).</p>
-              </div>
-            </details>
+
           </div>
         </div>
       </div>

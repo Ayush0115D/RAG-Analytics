@@ -3,4 +3,6 @@ node_modules
 dist
 
 yt-dlp.exe
+yt-dlp
+instagram_cookies.txt
 temp\

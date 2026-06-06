@@ -8,9 +8,26 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const YTDLP_PATH = path.join(__dirname, "..", "yt-dlp.exe");
+const IS_WIN = process.platform === "win32";
+const YTDLP_NAME = IS_WIN ? "yt-dlp.exe" : "yt-dlp";
+const YTDLP_PATH = path.join(__dirname, "..", YTDLP_NAME);
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+
+// Write Instagram cookies to file from env var (so yt-dlp can use them)
+const COOKIES_PATH = process.env.INSTAGRAM_COOKIES_FILE || path.join(__dirname, "..", "instagram_cookies.txt");
+const cookiesRaw = process.env.INSTAGRAM_COOKIES || process.env.INSTAGRAM_COOKIES_B64;
+if (cookiesRaw && !fs.existsSync(COOKIES_PATH)) {
+  try {
+    const content = process.env.INSTAGRAM_COOKIES_B64
+      ? Buffer.from(cookiesRaw, "base64").toString()
+      : cookiesRaw;
+    fs.writeFileSync(COOKIES_PATH, content, "utf-8");
+    console.log(`Instagram cookies written to ${COOKIES_PATH}`);
+  } catch (e) {
+    console.error("Failed to write Instagram cookies:", e.message);
+  }
+}
 
 function extractReelId(url) {
   const patterns = [
@@ -33,12 +50,11 @@ async function findYtDlp() {
     } catch {}
   }
 
-  console.log("Downloading yt-dlp...");
-  const { data } = await axios.get(
-    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
-    { responseType: "stream" }
-  );
-  const writer = fs.createWriteStream(YTDLP_PATH);
+  const ext = IS_WIN ? "exe" : "linux";
+  const url = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.${ext}`;
+  console.log(`Downloading yt-dlp (${ext})...`);
+  const { data } = await axios.get(url, { responseType: "stream" });
+  const writer = fs.createWriteStream(YTDLP_PATH, { mode: 0o755 });
   data.pipe(writer);
   await new Promise((resolve, reject) => {
     writer.on("finish", resolve);
@@ -90,26 +106,38 @@ export async function getInstagramData(url) {
   const reelId = extractReelId(url);
   const ytDlp = await findYtDlp();
 
-  const args = ["--dump-json", "--no-download", "--no-check-certificate"];
-
-  const cookiesFile = process.env.INSTAGRAM_COOKIES_FILE;
-  if (cookiesFile && fs.existsSync(cookiesFile)) {
-    args.push("--cookies", cookiesFile);
+  // Build cookie args
+  let cookieArgs = [];
+  if (fs.existsSync(COOKIES_PATH)) {
+    cookieArgs = ["--cookies", COOKIES_PATH];
+    console.log("Instagram: using cookies file");
+  } else if (!IS_WIN) {
+    throw new Error(
+      "Instagram cookies file not found. Steps:\n" +
+      "1. Install 'cookies.txt' browser extension\n" +
+      "2. Log into Instagram, export cookies\n" +
+      "3. Set INSTAGRAM_COOKIES_B64 on Render"
+    );
   } else {
     const browser = process.env.INSTAGRAM_BROWSER || "chrome";
-    args.push("--cookies-from-browser", browser);
+    cookieArgs = ["--cookies-from-browser", browser];
+    console.log(`Instagram: trying browser cookies (${browser})`);
   }
+
+  const metaArgs = ["--dump-json", "--no-download", ...cookieArgs];
+  if (IS_WIN) metaArgs.push("--no-check-certificate");
 
   let info;
   try {
-    const { stdout } = await execFileAsync(ytDlp, [...args, url]);
+    const { stdout } = await execFileAsync(ytDlp, [...metaArgs, url]);
     info = JSON.parse(stdout);
+    console.log(`Instagram: metadata fetched for ${reelId}`);
   } catch (err) {
-    throw new Error(
-      "Instagram requires login. To fix:\n" +
-      "1. Log into Instagram in your browser\n" +
-      '2. Set INSTAGRAM_BROWSER in .env (e.g. INSTAGRAM_BROWSER=edge)\n' +
-      "3. Or export cookies to a txt file and set INSTAGRAM_COOKIES_FILE"
+    throw new Error(err.stderr?.includes("cookies") || err.stderr?.includes("login")
+      ? "Instagram requires login. " + (IS_WIN
+          ? "Log into Instagram in your browser, or set INSTAGRAM_COOKIES_FILE."
+          : "Export cookies via browser extension and set INSTAGRAM_COOKIES_B64.")
+      : `Instagram failed: ${err.stderr?.slice(0, 200) || err.message}`
     );
   }
 
@@ -140,21 +168,26 @@ export async function getInstagramData(url) {
     const audioPath = path.join(tempDir, `${reelId}.mp3`);
     if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
 
-    await execFileAsync(ytDlp, [
-      ...args,
-      "-x", "--audio-format", "mp3",
+    // Audio download args (no --no-download flag)
+    const audioArgs = [
+      ...cookieArgs, "-x", "--audio-format", "mp3",
       "--audio-quality", "0",
       "--no-check-certificate",
       "-o", audioPath,
       url,
-    ]);
+    ];
+    await execFileAsync(ytDlp, audioArgs);
 
     if (fs.existsSync(audioPath) && fs.statSync(audioPath).size > 0) {
       transcript = await transcribeAudio(audioPath, metadata.duration);
     }
   } catch (err) {
     console.warn("Instagram audio transcription failed:", err.message);
+  } finally {
+    const audioPath = path.join(tempDir, `${reelId}.mp3`);
+    if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
   }
 
   return { transcript, metadata };
 }
+//  https://www.instagram.com/reel/DY7e9WrTbve/?utm_source=ig_web_copy_link&igsh=MzRlODBiNWFlZA==

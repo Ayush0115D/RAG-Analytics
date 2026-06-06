@@ -50,14 +50,6 @@ npm run dev
 
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.
 
-### Instagram Setup
-
-Instagram blocks anonymous access. You need cookies from a logged-in browser:
-
-1. Set `INSTAGRAM_BROWSER` in `backend/.env` to your browser name (`chrome`, `edge`, `firefox`)
-2. First run will prompt browser permission — accept it
-3. Or export cookies via browser extension and set `INSTAGRAM_COOKIES_FILE`
-
 ## Architecture
 
 ```
