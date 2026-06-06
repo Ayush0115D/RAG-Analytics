@@ -17,7 +17,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 // Write Instagram cookies to file from env var (so yt-dlp can use them)
 const COOKIES_PATH = process.env.INSTAGRAM_COOKIES_FILE || path.join(__dirname, "..", "instagram_cookies.txt");
 const cookiesRaw = process.env.INSTAGRAM_COOKIES || process.env.INSTAGRAM_COOKIES_B64;
-if (cookiesRaw && !fs.existsSync(COOKIES_PATH)) {
+if (cookiesRaw) {
   try {
     const content = process.env.INSTAGRAM_COOKIES_B64
       ? Buffer.from(cookiesRaw, "base64").toString()
