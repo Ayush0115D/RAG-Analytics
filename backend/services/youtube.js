@@ -3,7 +3,7 @@ import axios from "axios";
 
 function extractVideoId(url) {
   const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
   ];
   for (const p of patterns) {
     const m = url.match(p);
@@ -18,17 +18,9 @@ function parseNum(str) {
   return isNaN(n) ? 0 : n;
 }
 
-async function scrapePage(videoId) {
-  const { data: html } = await axios.get(
-    `https://www.youtube.com/watch?v=${videoId}`,
-    {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-    }
-  );
+export async function getYouTubeData(url) {
+  const videoId = extractVideoId(url);
+  const API_KEY = process.env.YOUTUBE_API_KEY;
 
   const meta = {
     title: "",
@@ -43,35 +35,107 @@ async function scrapePage(videoId) {
     thumbnail: "",
   };
 
-  const prMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/);
-  if (prMatch) {
+  // Use YouTube Data API v3 for reliable statistics
+  if (API_KEY) {
     try {
-      const pr = JSON.parse(prMatch[1]);
-      const vd = pr.videoDetails;
-      if (vd) {
-        meta.title = vd.title || "";
-        meta.creator = vd.author || "";
-        meta.views = parseNum(vd.viewCount);
-        meta.duration = parseNum(vd.lengthSeconds);
-        meta.thumbnail = vd.thumbnail?.thumbnails?.at(-1)?.url || "";
+      const { data } = await axios.get(
+        "https://www.googleapis.com/youtube/v3/videos",
+        {
+          params: {
+            part: "statistics,snippet,contentDetails",
+            id: videoId,
+            key: API_KEY,
+          },
+        }
+      );
+      const item = data.items?.[0];
+      if (item) {
+        const s = item.statistics || {};
+        const sn = item.snippet || {};
+        const cd = item.contentDetails || {};
+
+        meta.title = sn.title || "";
+        meta.creator = sn.channelTitle || "";
+        meta.views = parseNum(s.viewCount);
+        meta.likes = parseNum(s.likeCount);
+        meta.comments = parseNum(s.commentCount);
+        meta.upload_date = sn.publishedAt?.slice(0, 10) || "";
+        meta.hashtags = (sn.tags || []).slice(0, 10);
+        meta.thumbnail =
+          sn.thumbnails?.maxres?.url ||
+          sn.thumbnails?.high?.url ||
+          sn.thumbnails?.default?.url ||
+          "";
+
+        // Parse ISO 8601 duration
+        const durMatch = cd.duration?.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+        if (durMatch) {
+          const h = parseInt(durMatch[1] || "0");
+          const m = parseInt(durMatch[2] || "0");
+          const s = parseInt(durMatch[3] || "0");
+          meta.duration = h * 3600 + m * 60 + s;
+        }
+
+        // Get subscriber count from channels API
+        try {
+          const { data: channelData } = await axios.get(
+            "https://www.googleapis.com/youtube/v3/channels",
+            {
+              params: {
+                part: "statistics",
+                id: sn.channelId,
+                key: API_KEY,
+              },
+            }
+          );
+          const ch = channelData.items?.[0];
+          if (ch) {
+            meta.follower_count = parseNum(ch.statistics?.subscriberCount);
+          }
+        } catch {}
       }
-      const mf = pr.microformat?.playerMicroformatRenderer;
-      if (mf) {
-        meta.upload_date = mf.publishDate || "";
+    } catch (err) {
+      console.warn("YouTube Data API failed, falling back to scrape:", err.message);
+    }
+  }
+
+  // Fallback: scrape basic info if API fails or no key
+  if (!meta.views && !meta.title) {
+    try {
+      const { data: html } = await axios.get(
+        `https://www.youtube.com/watch?v=${videoId}`,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+        }
+      );
+
+      const prMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/);
+      if (prMatch) {
+        try {
+          const pr = JSON.parse(prMatch[1]);
+          const vd = pr.videoDetails;
+          if (vd) {
+            meta.title = meta.title || vd.title || "";
+            meta.creator = meta.creator || vd.author || "";
+            meta.views = meta.views || parseNum(vd.viewCount);
+            meta.duration = meta.duration || parseNum(vd.lengthSeconds);
+            meta.thumbnail =
+              meta.thumbnail ||
+              vd.thumbnail?.thumbnails?.at(-1)?.url ||
+              "";
+          }
+          const mf = pr.microformat?.playerMicroformatRenderer;
+          if (mf) {
+            meta.upload_date = meta.upload_date || mf.publishDate || "";
+          }
+        } catch {}
       }
     } catch {}
   }
-
-  const diMatch = html.match(/ytInitialData\s*=\s*(\{.+?)\};\s*\n/);
-  /* ytInitialData is too large for simple regex; likes/comments
-     require the YouTube Data API for reliable extraction. */
-
-  return meta;
-}
-
-export async function getYouTubeData(url) {
-  const videoId = extractVideoId(url);
-  const meta = await scrapePage(videoId);
 
   let transcript = [];
   try {

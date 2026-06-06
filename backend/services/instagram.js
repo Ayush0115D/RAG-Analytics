@@ -4,10 +4,13 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import axios from "axios";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const YTDLP_PATH = path.join(__dirname, "..", "yt-dlp.exe");
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 function extractReelId(url) {
   const patterns = [
@@ -48,6 +51,39 @@ function parseEngagementRate(views, likes, comments) {
   return views > 0
     ? (((likes + comments) / views) * 100).toFixed(2)
     : "0.00";
+}
+
+async function transcribeAudio(audioPath, durationSec) {
+  try {
+    const audioData = fs.readFileSync(audioPath);
+    const base64Audio = audioData.toString("base64");
+
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          mimeType: "audio/mp3",
+          data: base64Audio,
+        },
+      },
+      "Transcribe the speech in this audio word-for-word. Return ONLY the raw transcript text, no timestamps or extra formatting.",
+    ]);
+
+    const text = result.response.text().trim();
+    if (!text || text.length < 10) return [];
+
+    const words = text.split(/\s+/);
+    const avgWordDuration = (durationSec * 1000) / Math.max(words.length, 1);
+
+    return words.map((word, i) => ({
+      text: word,
+      offset: Math.round(i * avgWordDuration),
+      dur: Math.round(avgWordDuration),
+    }));
+  } catch (err) {
+    console.warn("Gemini transcription failed:", err.message);
+    return [];
+  }
 }
 
 export async function getInstagramData(url) {
@@ -113,11 +149,12 @@ export async function getInstagramData(url) {
       url,
     ]);
 
-    if (fs.existsSync(audioPath)) {
-      transcript = [{ text: "[Audio downloaded — pending transcription via Gemini]", offset: 0, dur: metadata.duration * 1000 }];
-      metadata._audioPath = audioPath;
+    if (fs.existsSync(audioPath) && fs.statSync(audioPath).size > 0) {
+      transcript = await transcribeAudio(audioPath, metadata.duration);
     }
-  } catch {}
+  } catch (err) {
+    console.warn("Instagram audio transcription failed:", err.message);
+  }
 
   return { transcript, metadata };
 }
