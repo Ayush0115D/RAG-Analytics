@@ -50,8 +50,8 @@ async function findYtDlp() {
     } catch {}
   }
 
-  const ext = IS_WIN ? "exe" : "linux";
-  const url = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.${ext}`;
+  const binaryName = IS_WIN ? "yt-dlp.exe" : "yt-dlp";
+  const url = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${binaryName}`;
   console.log(`Downloading yt-dlp (${ext})...`);
   const { data } = await axios.get(url, { responseType: "stream" });
   const writer = fs.createWriteStream(YTDLP_PATH, { mode: 0o755 });
