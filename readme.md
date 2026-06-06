@@ -1,28 +1,29 @@
 # RAG Chatbot
 
-A full-stack RAG (Retrieval-Augmented Generation) chatbot that compares social media videos — YouTube and Instagram Reels — by extracting transcripts, computing engagement metrics, and answering contextual questions via an LLM-powered chat interface.
+A full-stack Retrieval-Augmented Generation chatbot that compares YouTube and Instagram Reel videos by extracting transcripts, computing engagement metrics, and answering contextual questions via an LLM-powered chat interface.
 
 ## Features
 
 - **Video Input** — paste YouTube and Instagram Reel URLs
-- **Transcript Extraction** — pulls captions from YouTube via `youtube-transcript`, transcribes Instagram Reels via yt-dlp + Gemini
+- **Transcript Extraction** — YouTube captions via `youtube-transcript`, Instagram audio transcription via Gemini
 - **Metadata & Engagement** — views, likes, comments, follower count, engagement rate via YouTube Data API + yt-dlp
-- **Vector Search** — chunks transcripts (~500 tokens with overlap), embeds with Gemini, stores in ChromaDB (with in-memory fallback)
-- **RAG Chat** — LangChain prompting with Gemini, streaming SSE, source citations, conversation memory
-- **Side-by-Side UI** — video cards with YouTube embed + chat panel, Tailwind CSS
+- **Vector Search** — chunks transcripts (~500 tokens with overlap), embeds via Gemini REST API (`gemini-embedding-001`, 3072-dim), stores in Pinecone serverless vector DB
+- **RAG Chat** — retrieves top-5 relevant chunks, streams answer via Gemini 2.5 Flash with SSE
+- **Dark/Light Theme** — CSS variables with toggle, clean card-based UI
+- **Responsive Dashboard** — side-by-side video cards with YouTube iframe embed + chat panel
 
 ## Tech Stack
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Frontend | React + Vite + Tailwind CSS | Fast builds, utility-first CSS, minimal JS overhead |
-| Backend | Node.js + Express | Simple, fast, async I/O — ideal for proxy/aggregator services |
-| Orchestration | LangChain + Gemini | Prompt chaining, context injection, streaming built-in |
-| Embeddings | `gemini-embedding-001` (Google) | 768-dim, free tier, no extra infra; replaces OpenAI |
-| Vector DB | ChromaDB (in-memory) | Zero-setup for demo; swap to Pinecone/Qdrant at scale |
-| LLM | `gemini-2.5-flash` | Low-latency, high-quality, generous free tier |
-| Transcripts | `youtube-transcript` + yt-dlp | YouTube captions natively; yt-dlp for Instagram audio |
-| Audio | Gemini inline audio (base64) | No separate Whisper model needed — Gemini transcribes directly |
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React + Vite + Tailwind CSS v4 |
+| Backend | Node.js + Express |
+| Embeddings | `gemini-embedding-001` via REST API (3072-dim) |
+| Vector DB | Pinecone (serverless, 3072-dim, cosine metric) |
+| LLM | `gemini-2.5-flash` with streaming |
+| Transcripts | `youtube-transcript`, `@distube/ytdl-core`, youtubetranscript.com API, yt-dlp |
+| Audio Transcription | Gemini inline audio (base64) |
+| Video Metadata | YouTube Data API v3, yt-dlp |
 
 ## Setup
 
@@ -31,14 +32,15 @@ A full-stack RAG (Retrieval-Augmented Generation) chatbot that compares social m
 - Node.js 18+
 - Gemini API key (free at https://aistudio.google.com/apikey)
 - YouTube Data API key (free at https://console.cloud.google.com)
-- Instagram requires browser cookies — log into Instagram in Chrome
+- Pinecone API key (free serverless index, 3072-dim, cosine metric)
+- Instagram cookies (export via browser extension)
 
 ### Quick Start
 
 ```bash
 # Backend
 cd backend
-cp .env .env.bak   # edit .env with your keys
+cp .env.example .env   # fill in your API keys
 npm install
 npm run dev
 
@@ -50,50 +52,57 @@ npm run dev
 
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.
 
+### Instagram Setup
+
+1. Log into Instagram in your browser
+2. Export cookies using "cookies.txt" browser extension
+3. Save as `backend/instagram_cookies.txt`
+4. The backend reads this file automatically
+
 ## Architecture
 
 ```
 User → Frontend (React + Tailwind) → Backend (Express)
-  → /api/youtube  → YouTube Data API + youtube-transcript
-  → /api/instagram → yt-dlp dump-json + audio download → Gemini transcription
-  → /api/ingest    → chunk → embed (gemini-embedding-001) → ChromaDB
-  → /api/chat      → retrieves top-5 chunks → LangChain prompt → Gemini stream
+  → /api/youtube    → YouTube Data API + transcript fallbacks
+  → /api/instagram  → yt-dlp dump-json + audio → Gemini transcription
+  → /api/ingest     → chunk → Gemini embed → Pinecone upsert
+  → /api/chat       → Pinecone query → top-5 chunks → Gemini stream
 ```
 
 ### Flow
 
-1. User pastes YT + IG URLs into the input fields
+1. User pastes YouTube and Instagram Reel URLs into input fields
 2. Each "Fetch" button calls its respective backend endpoint
-3. Transcript is chunked (500 tokens, 50 overlap), embedded via Gemini, upserted to ChromaDB
-4. Chat queries embed the question, find top-5 similar chunks as context
-5. A LangChain prompt instructs Gemini to answer based only on that context with source citations
-6. Response streams back via SSE (`data:` events for text/sources/done/error)
+3. Transcripts are chunked (500 tokens, 50 overlap), embedded via Gemini, upserted to Pinecone
+4. Chat queries embed the question, find top-5 similar chunks via cosine similarity
+5. Gemini 2.5 Flash answers with source citations streamed via SSE
+
+## Deployment
+
+- **Frontend** — Vercel (`VITE_API_URL` points to backend)
+- **Backend** — Render Web Service
+- **Pinecone** — Serverless index (free tier)
+- **Instagram** — `INSTAGRAM_COOKIES_B64` env var on Render (base64-encoded cookies.txt)
 
 ## Cost & Scalability
 
-### At 1,000 creators/day (~3M requests/month)
+| Component | Cost Estimate |
+|-----------|-------------|
+| Gemini API (embed + generate + transcribe) | ~$0 (free tier) |
+| YouTube Data API | $0 (10K quota/day free) |
+| yt-dlp downloads | Bandwidth only |
+| Pinecone | Free serverless tier |
+| Hosting (Render + Vercel) | $0 (free tiers) |
 
-| Component | Cost Estimate | Notes |
-|-----------|-------------|-------|
-| Gemini API (embed + generate + transcribe) | ~$0 (free tier) | Gemini 2.5 Flash has generous limits; embed-001 is free |
-| YouTube Data API | $0 | 10K quota/day free = 10K video lookups |
-| yt-dlp downloads | $0 | Bandwidth cost only (~1-5 MB per reel audio) |
-| ChromaDB | $0 | In-process; at scale swap to Pinecone ($0.25/M vectors/month) |
-| Hosting (Render Railway) | ~$7-20/mo | Node + Python sidecar for ChromaDB if needed |
+### Bottlenecks
 
-### Bottlenecks at scale
-
-1. **Instagram transcription** — yt-dlp downloads + Gemini audio transcription takes ~5-15s per reel. For 1K/day, parallelize with a job queue (BullMQ + Redis).
-2. **YouTube quota** — 10K/day free. At 1K/day you use 2K quota (1 video + 1 channel lookup). Fine at this scale; upgrade to paid ($0.03/1K) at 10K/day.
-3. **ChromaDB in-memory** — loses data on restart. For production, use persistent ChromaDB or Pinecone.
-
-### Recommended production stack
-
-Swap the in-memory ChromaDB for Pinecone (serverless, 0 infra) and add a Redis-backed job queue for Instagram transcription. Keep Gemini as the LLM — unbeatable cost/quality ratio at this volume.
+1. **Instagram transcription** — yt-dlp download + Gemini audio transcription takes ~5-15s per reel. Parallelize with a job queue (BullMQ + Redis) at scale.
+2. **YouTube quota** — 10K requests/day free. Upgrade to paid ($0.03/1K) beyond that.
+3. **Instagram cookies** — expire periodically; re-export required.
 
 ## Trade-offs
 
-- **Chunk size 500 / overlap 50** — balances context window with precision for short-form video analysis (hooks, pacing)
-- **Gemini over OpenAI** — 1,500 RPM free vs. paid; audio transcription inline without Whisper infra
-- **LangChain prompts over LangGraph** — simpler for single-turn retrieval + generation; add LangGraph if multi-agent investigation needed
-- **In-memory over persisted vector DB** — zero ops for demo; swap in 5 lines of code to Pinecone
+- **Gemini over OpenAI** — generous free tier, audio transcription inline without Whisper infra
+- **Pinecone over ChromaDB** — ChromaDB npm package caused CORS errors in Node.js; Pinecone serverless works via REST API
+- **Gemini REST API over SDK** — direct `embedContent` endpoint more reliable than SDK model name resolution
+- **Chunk size 500 / overlap 50** — balances context window with precision for short-form video analysis

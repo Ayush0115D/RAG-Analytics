@@ -90,18 +90,19 @@ app.post("/api/chat", async (req, res) => {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    const prompt = `You are a social media video analyst. You compare two videos (A and B) and answer questions based ONLY on the provided context.
+    const prompt = `You are a video content analyst comparing two videos. Answer the user's question based ONLY on the transcript chunks below.
 
-Context:
-${context || "No relevant context found."}
+${context ? `## Transcript Context\n${context}` : "No relevant transcript content found for this question."}
 
-Rules:
-- Answer concisely and directly.
-- Always cite sources at the end using [Video X — Chunk Y].
-- If the context doesn't contain the answer, say so.
-- Use the metadata (views, likes, comments, engagement rate) when relevant.
+## Instructions
+- Answer directly and conversationally — no markdown formatting, no bullet lists, no bold text.
+- If the context contains relevant information, reference specific moments using [Video A — Chunk N] or [Video B — Chunk N].
+- Compare the two videos where possible: contrast their topics, tone, style, or hooks.
+- If the context doesn't contain enough information to answer, say so clearly.
+- If only one video has relevant content, answer based on what's available.
 
-Question: ${question}`;
+## Question
+${question}`;
 
     const result = await model.generateContentStream(prompt);
     for await (const chunk of result.stream) {
