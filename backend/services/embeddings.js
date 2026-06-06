@@ -1,38 +1,50 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-
+const API_KEY = process.env.GEMINI_API_KEY || "";
 const EMBEDDING_MODEL = "gemini-embedding-001";
 
+async function callEmbedAPI(text) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent?key=${API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: `models/${EMBEDDING_MODEL}`,
+        content: { parts: [{ text }] },
+      }),
+    }
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`);
+  return data.embedding.values;
+}
+
+// Startup test
+(async () => {
+  try {
+    const dim = (await callEmbedAPI("ping")).length;
+    console.log(`Embedding model OK (${EMBEDDING_MODEL}), dim: ${dim}`);
+  } catch (e) {
+    console.error(`Embedding model FAILED (${EMBEDDING_MODEL}):`, e.message);
+  }
+})();
+
 export async function embedText(text) {
-  const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
-  const result = await model.embedContent(text);
-  return result.embedding.values;
+  return callEmbedAPI(text);
 }
 
 export async function embedChunks(chunks) {
-  const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
-
-  const results = await Promise.allSettled(
-    chunks.map(async (chunk) => {
-      const result = await model.embedContent(chunk.text);
-      return {
-        ...chunk,
-        embedding: result.embedding.values,
-      };
-    })
-  );
-
-  const rejected = results.filter((r) => r.status === "rejected");
-  if (rejected.length > 0) {
-    console.error("Embedding failures:", rejected.slice(0, 3).map((r) => r.reason));
+  const results = [];
+  for (const chunk of chunks) {
+    try {
+      const embedding = await callEmbedAPI(chunk.text);
+      results.push({ ...chunk, embedding });
+    } catch (e) {
+      console.error(`Embedding failed for chunk ${chunk.video_id}_${chunk.index}:`, e.message);
+    }
   }
-
-  return results
-    .filter((r) => r.status === "fulfilled")
-    .map((r) => r.value);
+  return results;
 }
 
 export async function embedQuery(query) {
-  return embedText(query);
+  return callEmbedAPI(query);
 }
