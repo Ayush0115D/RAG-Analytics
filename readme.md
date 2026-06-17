@@ -11,6 +11,13 @@ A full-stack Retrieval-Augmented Generation chatbot that compares YouTube and In
 - **RAG Chat** — retrieves top-5 relevant chunks, streams answer via Gemini 2.5 Flash with SSE
 - **Dark/Light Theme** — CSS variables with toggle, clean card-based UI
 - **Responsive Dashboard** — side-by-side video cards with YouTube iframe embed + chat panel
+- **Sources Panel** — clickable chunk chips in chat showing video ID, chunk index, confidence score
+- **Link History** — collapsible card with copy/load/clear buttons, platform badges, timestamps, max 20 entries
+- **Session Persistence** — saves URL inputs, video metadata, chat messages, link history to localStorage (500ms debounced)
+- **Toast Notifications** — success/error/info with slide-in animation
+- **Skeleton Shimmers** — animated placeholder cards while videos load
+- **Staggered Entrance Animations** — cascading `.dash-entrance` delays
+- **Image Proxy** — Instagram CDN thumbnails proxied through backend (base64-encoded URLs to bypass ad blockers)
 
 ## Tech Stack
 
@@ -52,21 +59,28 @@ npm run dev
 
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.
 
-### Instagram Setup
+### Instagram Cookies
 
-1. Log into Instagram in your browser
-2. Export cookies using "cookies.txt" browser extension
-3. Save as `backend/instagram_cookies.txt`
-4. The backend reads this file automatically
+The backend supports three ways to provide Instagram cookies:
+
+1. **`INSTAGRAM_COOKIES_B64` env var** (recommended for production) — base64-encoded cookies.txt content
+2. **`INSTAGRAM_COOKIES_FILE` env var** — path to a cookies.txt file (resolved relative to `backend/`)
+3. **`--cookies-from-browser`** (Windows local only) — yt-dlp extracts cookies from your browser
+
+On Render, set `INSTAGRAM_COOKIES_B64` in the dashboard. On local, place `instagram_cookies.txt` in the `backend/` directory or set the env var.
 
 ## Architecture
 
 ```
 User → Frontend (React + Tailwind) → Backend (Express)
-  → /api/youtube    → YouTube Data API + transcript fallbacks
-  → /api/instagram  → yt-dlp dump-json + audio → Gemini transcription
-  → /api/ingest     → chunk → Gemini embed → Pinecone upsert
-  → /api/chat       → Pinecone query → top-5 chunks → Gemini stream
+  → /api/youtube        → YouTube Data API + transcript fallbacks
+  → /api/instagram      → yt-dlp dump-json + audio → Gemini transcription
+  → /api/ingest         → chunk → Gemini embed → Pinecone upsert
+  → /api/chat           → Pinecone query → top-5 chunks → Gemini stream
+  → /api/proxy-image    → fetch external image → return with CORS headers
+  → /api/auth/signup    → bcrypt hash → store in users.json → return JWT
+  → /api/auth/login     → verify password → return JWT
+  → /api/auth/me        → verify JWT → return user
 ```
 
 ### Flow
@@ -79,10 +93,24 @@ User → Frontend (React + Tailwind) → Backend (Express)
 
 ## Deployment
 
-- **Frontend** — Vercel (`VITE_API_URL` points to backend)
+- **Frontend** — Vercel (`VITE_API_URL` points to backend). SPA routing is handled via `vercel.json` rewrites rule.
 - **Backend** — Render Web Service
 - **Pinecone** — Serverless index (free tier)
 - **Instagram** — `INSTAGRAM_COOKIES_B64` env var on Render (base64-encoded cookies.txt)
+
+## API Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/auth/signup` | No | Create account (name, email, password) |
+| POST | `/api/auth/login` | No | Login, returns JWT |
+| GET | `/api/auth/me` | Bearer | Verify token, get user |
+| POST | `/api/youtube` | No | Fetch YouTube video metadata + transcript |
+| POST | `/api/instagram` | No | Fetch Instagram reel metadata + transcript |
+| POST | `/api/ingest` | No | Chunk + embed + store transcript |
+| POST | `/api/chat` | No | Ask question, stream SSE response |
+| GET | `/api/proxy-image?u=` | No | Proxy external images (base64-encoded URL) |
+| GET | `/api/health` | No | Health check |
 
 ## Cost & Scalability
 
@@ -99,10 +127,3 @@ User → Frontend (React + Tailwind) → Backend (Express)
 1. **Instagram transcription** — yt-dlp download + Gemini audio transcription takes ~5-15s per reel. Parallelize with a job queue (BullMQ + Redis) at scale.
 2. **YouTube quota** — 10K requests/day free. Upgrade to paid ($0.03/1K) beyond that.
 3. **Instagram cookies** — expire periodically; re-export required.
-
-## Trade-offs
-
-- **Gemini over OpenAI** — generous free tier, audio transcription inline without Whisper infra
-- **Pinecone over ChromaDB** — ChromaDB npm package caused CORS errors in Node.js; Pinecone serverless works via REST API
-- **Gemini REST API over SDK** — direct `embedContent` endpoint more reliable than SDK model name resolution
-- **Chunk size 500 / overlap 50** — balances context window with precision for short-form video analysis
