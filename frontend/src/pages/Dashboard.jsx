@@ -3,6 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { fetchYouTube, fetchInstagram, ingestVideo, streamChat } from "../api";
 import { useTheme } from "../context/ThemeContext";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+
+function proxyImg(url) {
+  if (!url || url.startsWith("data:") || url.startsWith("blob:") || url.startsWith(`${API_URL}/`)) return url;
+  return `${API_URL}/api/proxy-image?u=${encodeURIComponent(btoa(encodeURIComponent(url)))}`;
+}
+
 function extractYtId(url) {
   const m = url?.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
   return m?.[1] || null;
@@ -222,7 +229,8 @@ function VideoCard({ data, label, loading, error, url, isYT }) {
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen />
         ) : m.thumbnail ? (
           <>
-            <img src={m.thumbnail} alt={m.title} className="w-full h-full object-cover" />
+            <img src={proxyImg(m.thumbnail)} alt={m.title} className="w-full h-full object-cover"
+              onError={(e) => { e.target.style.display = "none" }} />
             <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-card)] via-transparent to-transparent" />
           </>
         ) : null}

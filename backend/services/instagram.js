@@ -14,9 +14,15 @@ const YTDLP_PATH = path.join(__dirname, "..", YTDLP_NAME);
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-// Write Instagram cookies to file from env var (so yt-dlp can use them)
-const COOKIES_PATH = process.env.INSTAGRAM_COOKIES_FILE || path.join(__dirname, "..", "instagram_cookies.txt");
-const cookiesRaw = process.env.INSTAGRAM_COOKIES || process.env.INSTAGRAM_COOKIES_B64;
+// Resolve cookies file path
+const COOKIES_PATH = process.env.INSTAGRAM_COOKIES_FILE
+  ? path.resolve(__dirname, "..", process.env.INSTAGRAM_COOKIES_FILE)
+  : path.join(__dirname, "..", "instagram_cookies.txt");
+
+// Write cookies from env var to file if provided
+// INSTAGRAM_COOKIES_B64 takes priority, then INSTAGRAM_COOKIES.
+// INSTAGRAM_COOKIES_FILE controls WHERE to write (not whether).
+const cookiesRaw = process.env.INSTAGRAM_COOKIES_B64 || process.env.INSTAGRAM_COOKIES;
 if (cookiesRaw) {
   try {
     const content = process.env.INSTAGRAM_COOKIES_B64
@@ -113,46 +119,51 @@ export async function ensureYtDlp() {
   return _ytDlpPath;
 }
 
+async function tryFetchYtDlp(ytDlp, args, url) {
+  try {
+    const { stdout } = await execFileAsync(ytDlp, [...args, url]);
+    return JSON.parse(stdout);
+  } catch { return null; }
+}
+
 export async function getInstagramData(url) {
   const reelId = extractReelId(url);
   if (!_ytDlpPath) _ytDlpPath = await findYtDlp();
   const ytDlp = _ytDlpPath;
 
-  // Build cookie args
-  let cookieArgs = [];
-  if (fs.existsSync(COOKIES_PATH)) {
-    cookieArgs = ["--cookies", COOKIES_PATH];
-    console.log("Instagram: using cookies file");
-  } else if (!IS_WIN) {
-    throw new Error(
-      "Instagram cookies file not found. Steps:\n" +
-      "1. Install 'cookies.txt' browser extension\n" +
-      "2. Log into Instagram, export cookies\n" +
-      "3. Set INSTAGRAM_COOKIES_B64 on Render"
-    );
-  } else {
-    const browser = process.env.INSTAGRAM_BROWSER || "chrome";
-    cookieArgs = ["--cookies-from-browser", browser];
-    console.log(`Instagram: trying browser cookies (${browser})`);
-  }
+  // Determine cookie strategy
+  const useCookiesFile = fs.existsSync(COOKIES_PATH);
+  const browser = process.env.INSTAGRAM_BROWSER || "chrome";
+  const cookieArg = useCookiesFile
+    ? ["--cookies", COOKIES_PATH]
+    : ["--cookies-from-browser", browser];
 
-  const metaArgs = ["--dump-json", "--no-download", ...cookieArgs];
-  if (IS_WIN) metaArgs.push("--no-check-certificate");
+  console.log(`Instagram: using ${useCookiesFile ? "cookies file" : "browser cookies (" + browser + ")"}`);
 
   let info;
-  try {
-    const { stdout } = await execFileAsync(ytDlp, [...metaArgs, url]);
-    info = JSON.parse(stdout);
-    console.log(`Instagram: metadata fetched for ${reelId}`);
-  } catch (err) {
-    const stderr = (err.stderr || "").replace(/data:[^ ]+/g, "").trim();
-    throw new Error(stderr.includes("cookies") || stderr.includes("login")
-      ? "Instagram requires login. " + (IS_WIN
-          ? "Log into Instagram in your browser, or set INSTAGRAM_COOKIES_FILE."
-          : "Export cookies via browser extension and set INSTAGRAM_COOKIES_B64.")
-      : `Instagram failed: ${stderr.slice(0, 160) || err.message}`
+
+  // Attempt 1: with cookies
+  const withCookiesArgs = ["--dump-json", "--no-download", ...cookieArg];
+  if (IS_WIN) withCookiesArgs.push("--no-check-certificate");
+  info = await tryFetchYtDlp(ytDlp, withCookiesArgs, url);
+
+  // Attempt 2: if browser cookies failed, try without (public reels)
+  if (!info && !useCookiesFile) {
+    console.log("Instagram: browser cookies failed, retrying without cookies");
+    const noCookieArgs = ["--dump-json", "--no-download"];
+    if (IS_WIN) noCookieArgs.push("--no-check-certificate");
+    info = await tryFetchYtDlp(ytDlp, noCookieArgs, url);
+  }
+
+  if (!info) {
+    throw new Error(
+      "Instagram requires login. " + (IS_WIN
+        ? "Log into Instagram in your browser, or set INSTAGRAM_COOKIES_B64 env var."
+        : "Export cookies via browser extension and set INSTAGRAM_COOKIES_B64.")
     );
   }
+
+  console.log(`Instagram: metadata fetched for ${reelId}`);
 
   const metadata = {
     video_id: "B",

@@ -72,6 +72,23 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
+app.get("/api/proxy-image", async (req, res) => {
+  try {
+    const { u } = req.query;
+    if (!u) return res.status(400).json({ error: "url query param required" });
+    const url = decodeURIComponent(Buffer.from(u, "base64").toString());
+    const response = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (!response.ok) return res.status(response.status).json({ error: "Failed to fetch image" });
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Content-Type", response.headers.get("content-type") || "image/jpeg");
+    res.set("Cache-Control", "public, max-age=86400");
+    res.send(buffer);
+  } catch {
+    res.status(400).json({ error: "Image proxy failed" });
+  }
+});
+
 app.post("/api/youtube", async (req, res) => {
   try {
     const { url, video_id } = req.body;
