@@ -145,11 +145,12 @@ export async function getInstagramData(url) {
     info = JSON.parse(stdout);
     console.log(`Instagram: metadata fetched for ${reelId}`);
   } catch (err) {
-    throw new Error(err.stderr?.includes("cookies") || err.stderr?.includes("login")
+    const stderr = (err.stderr || "").replace(/data:[^ ]+/g, "").trim();
+    throw new Error(stderr.includes("cookies") || stderr.includes("login")
       ? "Instagram requires login. " + (IS_WIN
           ? "Log into Instagram in your browser, or set INSTAGRAM_COOKIES_FILE."
           : "Export cookies via browser extension and set INSTAGRAM_COOKIES_B64.")
-      : `Instagram failed: ${err.stderr?.slice(0, 200) || err.message}`
+      : `Instagram failed: ${stderr.slice(0, 160) || err.message}`
     );
   }
 
@@ -164,7 +165,7 @@ export async function getInstagramData(url) {
     upload_date: info.upload_date ?? "",
     duration: info.duration ?? 0,
     hashtags: info.tags ?? [],
-    thumbnail: info.thumbnail ?? "",
+    thumbnail: info.thumbnail?.startsWith("data:") ? "" : (info.thumbnail ?? ""),
     engagement_rate: "0.00",
   };
 

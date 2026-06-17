@@ -94,7 +94,9 @@ app.post("/api/instagram", async (req, res) => {
     if (video_id) data.metadata.video_id = video_id;
     res.json(data);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    let msg = err.message || "Instagram fetch failed";
+    if (msg.includes("data:") || msg.length > 300) msg = msg.slice(0, 200);
+    res.status(400).json({ error: msg });
   }
 });
 

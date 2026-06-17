@@ -305,11 +305,12 @@ function ChatMessage({ msg, onSourceClick }) {
   );
 }
 
-function ChatPanel({ disabled, hasBoth, onSourceClick }) {
-  const [messages, setMessages] = useState([]);
+function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessagesChange }) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const bottomRef = useRef(null);
+  const messages = externalMessages || [];
+  const setMessages = onMessagesChange || (() => {});
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
@@ -385,17 +386,121 @@ function ChatPanel({ disabled, hasBoth, onSourceClick }) {
   );
 }
 
+/* ───────── Link History ───────── */
+function LinkHistory({ links, onLoad, onClear }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const empty = links.length === 0;
+  return (
+    <div className="card card-lift dash-entrance" style={{ animationDelay: "0.4s" }}>
+      <div className="card-header flex items-center gap-3 cursor-pointer select-none" onClick={() => setCollapsed(!collapsed)}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+        <h2 className="text-sm font-semibold text-[var(--text-heading)] m-0">Link History</h2>
+        <span className="text-[10px] text-[var(--text-muted)] ml-1">({links.length})</span>
+        <div className="ml-auto flex items-center gap-2">
+          {!empty && <button onClick={(e) => { e.stopPropagation(); onClear(); }} className="btn-ghost text-[11px]">Clear</button>}
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            style={{ transform: collapsed ? "rotate(-90deg)" : "rotate(0)", transition: "transform 0.2s ease" }}>
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+      </div>
+      {!collapsed && (
+        <div className="card-body">
+          {empty ? (
+            <div className="text-center py-6">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-2 opacity-30">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+              <p className="text-sm text-[var(--text-muted)]">No links yet</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1 opacity-60">Fetched video URLs will appear here</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-[240px] overflow-y-auto">
+              {[...links].reverse().map((link, i) => (
+                <div key={link.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-[var(--bg-slate-900)] border border-[var(--border)] group" style={{ animation: `fade-in 0.2s ease-out ${i * 0.03}s both` }}>
+                  <span className={`flex items-center justify-center w-7 h-7 rounded-md text-xs font-bold shrink-0 ${link.platform === "youtube" ? "bg-emerald-500/15 text-emerald-400" : "bg-purple-500/15 text-purple-400"}`}>
+                    {link.platform === "youtube" ? "YT" : "IG"}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] text-[var(--text-secondary)] m-0 truncate">{link.url}</p>
+                    <p className="text-[10px] text-[var(--text-muted)] m-0 mt-0.5">{link.timestamp}</p>
+                  </div>
+                  <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => { navigator.clipboard.writeText(link.url); notify("success", "Copied to clipboard"); }}
+                      className="btn-ghost text-[10px] px-2 py-1 h-auto" title="Copy URL">Copy</button>
+                    <button onClick={() => onLoad(link.url, link.platform)}
+                      className="btn-ghost text-[10px] px-2 py-1 h-auto" title="Load URL">Load</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ───────── Dashboard ───────── */
+const STORAGE_KEY = "rag_dashboard_state";
+
+function loadSavedState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+    if (!state || typeof state !== "object") return null;
+    return state;
+  } catch { return null; }
+}
+
+function saveState(state) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {}
+}
+
+function cleanVideo(video) {
+  if (!video) return null;
+  return { metadata: video.metadata, transcript: video.transcript };
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [ytUrl, setYtUrl] = useState("");
-  const [igUrl, setIgUrl] = useState("");
-  const [videoA, setVideoA] = useState(null);
-  const [videoB, setVideoB] = useState(null);
+  const saved = useRef(loadSavedState());
+  const [restored, setRestored] = useState(false);
+
+  const [ytUrl, setYtUrl] = useState(saved.current?.ytUrl || "");
+  const [igUrl, setIgUrl] = useState(saved.current?.igUrl || "");
+  const [videoA, setVideoA] = useState(saved.current?.videoA || null);
+  const [videoB, setVideoB] = useState(saved.current?.videoB || null);
   const [loadingA, setLoadingA] = useState(false);
   const [loadingB, setLoadingB] = useState(false);
   const [errorA, setErrorA] = useState("");
   const [errorB, setErrorB] = useState("");
+  const [chatMessages, setChatMessages] = useState(saved.current?.chatMessages || []);
+  const [linkHistory, setLinkHistory] = useState(saved.current?.linkHistory || []);
+
+  useEffect(() => {
+    if (saved.current && (saved.current.videoA || saved.current.videoB || saved.current.chatMessages?.length > 0)) {
+      setRestored(true);
+      setTimeout(() => setRestored(false), 2500);
+    }
+    saved.current = null;
+  }, []);
+
+  const hasBoth = !!(videoA && videoB);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveState({ ytUrl, igUrl, videoA: cleanVideo(videoA), videoB: cleanVideo(videoB), chatMessages, linkHistory });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [ytUrl, igUrl, videoA, videoB, chatMessages, linkHistory]);
 
   async function handleFetch(videoId) {
     const url = videoId === "A" ? ytUrl : igUrl;
@@ -404,6 +509,7 @@ export default function Dashboard() {
     const setLoading = videoId === "A" ? setLoadingA : setLoadingB;
     const setError = videoId === "A" ? setErrorA : setErrorB;
     const fetcher = videoId === "A" ? fetchYouTube : fetchInstagram;
+    const platform = videoId === "A" ? "youtube" : "instagram";
     setLoading(true);
     setError("");
     setData(null);
@@ -411,6 +517,10 @@ export default function Dashboard() {
       const data = await fetcher(url, videoId);
       setData(data);
       await ingestVideo(data.transcript, videoId);
+      setLinkHistory((prev) => {
+        const next = [...prev, { id: Date.now(), url, platform, videoId, timestamp: new Date().toLocaleString() }];
+        return next.length > 20 ? next.slice(next.length - 20) : next;
+      });
       notify("success", `${videoId === "A" ? "YouTube" : "Instagram"} video fetched & ingested`);
     } catch (err) {
       setError(err.message);
@@ -420,11 +530,10 @@ export default function Dashboard() {
     }
   }
 
-  const hasBoth = !!(videoA && videoB);
-
   function handleLogout() {
     localStorage.removeItem("rag_token");
     localStorage.removeItem("rag_user");
+    localStorage.removeItem(STORAGE_KEY);
     navigate("/");
   }
 
@@ -432,10 +541,28 @@ export default function Dashboard() {
     notify("info", `Video ${source.video_id} — Chunk ${source.chunk_index} (confidence: ${(source.score * 100).toFixed(0)}%)`);
   }
 
+  function handleLoadLink(url, platform) {
+    if (platform === "youtube") setYtUrl(url);
+    else setIgUrl(url);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    notify("info", `URL loaded into ${platform === "youtube" ? "YouTube" : "Instagram"} field`);
+  }
+
+  function handleClearLinks() {
+    setLinkHistory([]);
+    notify("info", "Link history cleared");
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <Header onLogout={handleLogout} />
       <ToastContainer />
+
+      {restored && (
+        <div className="fixed top-[76px] left-1/2 -translate-x-1/2 z-30 bg-cyan-600/15 text-cyan-400 border border-cyan-500/20 rounded-lg px-4 py-2 text-xs font-medium backdrop-blur-sm animate-[fade-in_0.3s_ease-out]">
+          Session restored
+        </div>
+      )}
 
       <main className="flex-1 max-w-[1280px] mx-auto w-full p-6 space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -456,7 +583,15 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <ChatPanel disabled={!(videoA || videoB)} hasBoth={hasBoth} onSourceClick={handleSourceClick} />
+        <ChatPanel
+          disabled={!(videoA || videoB)}
+          hasBoth={hasBoth}
+          onSourceClick={handleSourceClick}
+          externalMessages={chatMessages}
+          onMessagesChange={setChatMessages}
+        />
+
+        <LinkHistory links={linkHistory} onLoad={handleLoadLink} onClear={handleClearLinks} />
       </main>
 
       <footer className="text-center py-4 border-t border-[var(--border)]">
