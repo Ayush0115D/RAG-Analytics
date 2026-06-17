@@ -6,6 +6,7 @@ import { getInstagramData, ensureYtDlp } from "./services/instagram.js";
 import { getStore } from "./services/vectorstore.js";
 import { embedChunks, embedQuery } from "./services/embeddings.js";
 import { chunkTranscript } from "./services/chunker.js";
+import { createUser, authenticateUser, generateToken, verifyToken, getUserById } from "./services/auth.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -13,9 +14,55 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({
   origin: (origin, cb) => cb(null, true),
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 }));
 app.use(express.json({ limit: "10mb" }));
+
+// Auth middleware
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) return res.status(401).json({ error: "No token provided" });
+  try {
+    const decoded = verifyToken(header.slice(7));
+    req.user = decoded;
+    next();
+  } catch {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
+
+// Auth routes
+app.post("/api/auth/signup", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ error: "Name, email and password are required" });
+    if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+    const user = await createUser({ name, email, password });
+    const token = generateToken(user);
+    res.json({ user, token });
+  } catch (err) {
+    if (err.message === "Email already registered") return res.status(409).json({ error: err.message });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
+    const user = await authenticateUser({ email, password });
+    const token = generateToken(user);
+    res.json({ user, token });
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
+app.get("/api/auth/me", authMiddleware, (req, res) => {
+  const user = getUserById(req.user.id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  res.json({ user });
+});
 
 app.get("/", (_req, res) => {
   res.json({ app: "RAG Chatbot API", version: "1.0.0" });

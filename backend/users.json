@@ -1,0 +1,16 @@
+[
+  {
+    "id": "1781714185212",
+    "name": "Ayush",
+    "email": "ayush2231100@akgec.ac.in",
+    "password": "$2b$10$xA7skAKv264vSLkjHh5W9OgnlSQ/P8uhdnRaT7xumtmwBwWA5aFAy",
+    "createdAt": "2026-06-17T16:36:25.213Z"
+  },
+  {
+    "id": "1781714658906",
+    "name": "Test",
+    "email": "test@test.com",
+    "password": "$2b$10$gxwVc8obaIBSu6oS0yM83OGrmxjj7rNpG36qmY1H3on2Xn7J5Pgpy",
+    "createdAt": "2026-06-17T16:44:18.906Z"
+  }
+]
