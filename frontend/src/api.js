@@ -1,13 +1,59 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
+function getToken() {
+  return localStorage.getItem("rag_token");
+}
+
+function authHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function handleRes(res) {
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+  return res.json();
+}
+
+function fetchWithTimeout(url, opts, timeoutMs = 8000) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), timeoutMs);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(id));
+}
+
+// Auth
+export async function signupApi(name, email, password) {
+  const res = await fetchWithTimeout(`${API_URL}/api/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, email, password }),
+  });
+  return handleRes(res);
+}
+
+export async function loginApi(email, password) {
+  const res = await fetchWithTimeout(`${API_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  return handleRes(res);
+}
+
+export async function getMe() {
+  const res = await fetchWithTimeout(`${API_URL}/api/auth/me`, {
+    headers: { ...authHeaders() },
+  });
+  return handleRes(res);
+}
+
+// Videos
 export async function fetchYouTube(url, videoId) {
   const res = await fetch(`${API_URL}/api/youtube`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, video_id: videoId }),
   });
-  if (!res.ok) throw new Error((await res.json()).error);
-  return res.json();
+  return handleRes(res);
 }
 
 export async function fetchInstagram(url, videoId) {
@@ -16,8 +62,7 @@ export async function fetchInstagram(url, videoId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, video_id: videoId }),
   });
-  if (!res.ok) throw new Error((await res.json()).error);
-  return res.json();
+  return handleRes(res);
 }
 
 export async function ingestVideo(transcript, videoId) {
@@ -26,8 +71,7 @@ export async function ingestVideo(transcript, videoId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ transcript, video_id: videoId }),
   });
-  if (!res.ok) throw new Error((await res.json()).error);
-  return res.json();
+  return handleRes(res);
 }
 
 export function streamChat(question, history, callbacks) {
