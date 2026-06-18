@@ -140,6 +140,7 @@ export async function getYouTubeData(url) {
 
   let transcript = [];
   const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // Method 1: youtube-transcript package
   try {
@@ -150,11 +151,16 @@ export async function getYouTubeData(url) {
       dur: t.duration,
     }));
     console.log(`YouTube transcript: ${transcript.length} entries (method 1)`);
-  } catch {
-    // Method 2: ytdl-core (more reliable on servers)
+  } catch (e1) {
+    console.warn("Method 1 failed:", e1.message);
+    await delay(1000);
+
+    // Method 2: ytdl-core (fetch caption XML directly)
     try {
       console.log("Trying transcript method 2 (ytdl-core)...");
-      const info = await ytdl.getInfo(videoId, { requestOptions: { headers: { "User-Agent": ua } } });
+      const info = await ytdl.getInfo(videoId, {
+        requestOptions: { headers: { "User-Agent": ua, "Accept-Language": "en-US,en;q=0.9" }, timeout: 15000 },
+      });
       const tracks = info.player_response?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
       if (tracks?.length > 0) {
         const track = tracks.find((t) => t.languageCode === "en") || tracks[0];
@@ -173,10 +179,16 @@ export async function getYouTubeData(url) {
 
     // Method 3: youtubetranscript.com API
     if (transcript.length === 0) {
+      await delay(1000);
       try {
         console.log("Trying transcript method 3 (youtubetranscript.com)...");
         const { data } = await axios.get(`https://youtubetranscript.com/?v=${videoId}`, {
-          headers: { "User-Agent": ua }, timeout: 10000,
+          headers: {
+            "User-Agent": ua,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+          timeout: 30000,
         });
         if (data && typeof data === "string") {
           const lines = data.split("\n").filter((l) => l.trim());
@@ -187,10 +199,30 @@ export async function getYouTubeData(url) {
           });
           console.log(`YouTube transcript: ${transcript.length} entries (method 3)`);
         }
-      } catch {}
+      } catch (e3) { console.warn("Method 3 failed:", e3.message); }
+
+      // Method 4: fetch transcript JSON from youtubetranscript.com API
+      if (transcript.length === 0) {
+        await delay(1000);
+        try {
+          console.log("Trying transcript method 4 (youtubetranscript.com /api)...");
+          const { data } = await axios.get(`https://youtubetranscript.com/api?vid=${videoId}`, {
+            headers: { "User-Agent": ua, "Accept": "application/json" },
+            timeout: 30000,
+          });
+          if (data && Array.isArray(data)) {
+            transcript = data.map((item) => ({
+              text: item.text,
+              offset: Math.round(parseFloat(item.offset) * 1000),
+              dur: Math.round(parseFloat(item.duration) * 1000),
+            }));
+            console.log(`YouTube transcript: ${transcript.length} entries (method 4)`);
+          }
+        } catch (e4) { console.warn("Method 4 failed:", e4.message); }
+      }
 
       if (transcript.length === 0) {
-        console.warn(`YouTube transcript: all 3 methods failed for ${videoId}`);
+        console.warn(`YouTube transcript: all 4 methods failed for ${videoId}`);
       }
     }
   }
