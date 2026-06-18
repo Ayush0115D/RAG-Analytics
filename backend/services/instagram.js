@@ -84,12 +84,14 @@ async function transcribeAudio(audioPath, durationSec) {
   try {
     const audioData = fs.readFileSync(audioPath);
     const base64Audio = audioData.toString("base64");
+    const ext = path.extname(audioPath).toLowerCase();
+    const mimeMap = { ".m4a": "audio/mp4", ".webm": "audio/webm", ".mp3": "audio/mp3", ".opus": "audio/ogg", ".aac": "audio/aac", ".wav": "audio/wav" };
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const result = await model.generateContent([
       {
         inlineData: {
-          mimeType: "audio/mp3",
+          mimeType: mimeMap[ext] || "audio/mp4",
           data: base64Audio,
         },
       },
@@ -189,27 +191,26 @@ export async function getInstagramData(url) {
   try {
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-    const audioPath = path.join(tempDir, `${reelId}.mp3`);
-    if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
-
-    // Audio download args (no --no-download flag)
+    const audioBase = path.join(tempDir, reelId);
     const audioArgs = [
-      ...cookieArgs, "-x", "--audio-format", "mp3",
-      "--audio-quality", "0",
+      ...cookieArg, "-f", "bestaudio",
       "--no-check-certificate",
-      "-o", audioPath,
+      "--extractor-retries", "3",
+      "-o", audioBase,
       url,
     ];
     await execFileAsync(ytDlp, audioArgs);
 
-    if (fs.existsSync(audioPath) && fs.statSync(audioPath).size > 0) {
-      transcript = await transcribeAudio(audioPath, metadata.duration);
+    const audioFile = fs.readdirSync(tempDir).find((f) => f.startsWith(reelId));
+    if (audioFile) {
+      const audioPath = path.join(tempDir, audioFile);
+      if (fs.statSync(audioPath).size > 0) {
+        transcript = await transcribeAudio(audioPath, metadata.duration);
+      }
+      fs.unlinkSync(audioPath);
     }
   } catch (err) {
     console.warn("Instagram audio transcription failed:", err.message);
-  } finally {
-    const audioPath = path.join(tempDir, `${reelId}.mp3`);
-    if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
   }
 
   return { transcript, metadata };
