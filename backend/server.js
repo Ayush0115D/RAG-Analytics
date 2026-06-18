@@ -119,14 +119,16 @@ app.post("/api/instagram", async (req, res) => {
 
 app.post("/api/ingest", async (req, res) => {
   try {
-    const { transcript, video_id } = req.body;
+    const { transcript, video_id, session_id } = req.body;
     if (!transcript || !video_id)
       return res.status(400).json({ error: "transcript and video_id are required" });
 
-    const chunks = chunkTranscript(transcript, video_id);
     const store = await getStore();
+    const ns = session_id || undefined;
+
+    const chunks = chunkTranscript(transcript, video_id);
     const embedded = await embedChunks(chunks);
-    const count = await store.addChunks(embedded);
+    const count = await store.addChunks(embedded, ns);
 
     console.log(`Ingest ${video_id}: ${chunks.length} chunks created, ${embedded.length} embedded, ${count} total in store`);
 
@@ -137,7 +139,7 @@ app.post("/api/ingest", async (req, res) => {
 });
 
 app.post("/api/chat", async (req, res) => {
-  const { question, history } = req.body;
+  const { question, history, video_ids, session_id } = req.body;
   if (!question) return res.status(400).json({ error: "Question is required" });
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -148,7 +150,9 @@ app.post("/api/chat", async (req, res) => {
   try {
     const store = await getStore();
     const qe = await embedQuery(question);
-    const chunks = await store.query(qe, 5);
+    const filter = video_ids?.length > 0 ? { video_id: { $in: video_ids } } : {};
+    const ns = session_id || undefined;
+    const chunks = await store.query(qe, 5, filter, ns);
     console.log(`Chat: retrieved ${chunks.length} chunks for question "${question.slice(0, 50)}..."`);
     const context = chunks.map((c) => `[Video ${c.video_id} — Chunk ${c.index}]: ${c.text}`).join("\n\n");
 

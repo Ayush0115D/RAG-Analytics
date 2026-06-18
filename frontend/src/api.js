@@ -9,6 +9,15 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function getSessionId() {
+  let sid = localStorage.getItem("rag_session_id");
+  if (!sid) {
+    sid = crypto.randomUUID();
+    localStorage.setItem("rag_session_id", sid);
+  }
+  return sid;
+}
+
 async function handleRes(res) {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
   return res.json();
@@ -51,7 +60,7 @@ export async function fetchYouTube(url, videoId) {
   const res = await fetch(`${API_URL}/api/youtube`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, video_id: videoId }),
+    body: JSON.stringify({ url, video_id: videoId, session_id: getSessionId() }),
   });
   return handleRes(res);
 }
@@ -60,7 +69,7 @@ export async function fetchInstagram(url, videoId) {
   const res = await fetch(`${API_URL}/api/instagram`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, video_id: videoId }),
+    body: JSON.stringify({ url, video_id: videoId, session_id: getSessionId() }),
   });
   return handleRes(res);
 }
@@ -69,18 +78,18 @@ export async function ingestVideo(transcript, videoId) {
   const res = await fetch(`${API_URL}/api/ingest`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ transcript, video_id: videoId }),
+    body: JSON.stringify({ transcript, video_id: videoId, session_id: getSessionId() }),
   });
   return handleRes(res);
 }
 
-export function streamChat(question, history, callbacks) {
+export function streamChat(question, history, callbacks, video_ids = []) {
   const { onText, onSources, onDone, onError } = callbacks;
 
   fetch(`${API_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, history }),
+    body: JSON.stringify({ question, history, video_ids, session_id: getSessionId() }),
   })
     .then(async (res) => {
       if (!res.ok) {

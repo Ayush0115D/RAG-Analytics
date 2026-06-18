@@ -313,7 +313,7 @@ function ChatMessage({ msg, onSourceClick }) {
   );
 }
 
-function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessagesChange }) {
+function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessagesChange, videoIds }) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const bottomRef = useRef(null);
@@ -329,6 +329,7 @@ function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessa
     setMessages((prev) => [...prev, { role: "user", text: q }, { role: "assistant", text: "", sources: [] }]);
     setStreaming(true);
     const history = messages.map((m) => ({ role: m.role, content: m.text }));
+    const ids = videoIds;
     streamChat(q, history, {
       onText(content) {
         setMessages((prev) => { const c = [...prev]; const l = c[c.length - 1]; if (l.role === "assistant") c[c.length - 1] = { ...l, text: l.text + content }; return c; });
@@ -341,7 +342,7 @@ function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessa
         setMessages((prev) => { const c = [...prev]; const l = c[c.length - 1]; if (l.role === "assistant") c[c.length - 1] = { ...l, text: l.text || `Error: ${err}` }; return c; });
         setStreaming(false);
       },
-    });
+    }, ids);
   }
 
   function handleKeyDown(e) {
@@ -521,6 +522,7 @@ export default function Dashboard() {
     setLoading(true);
     setError("");
     setData(null);
+    setChatMessages([]);
     try {
       const data = await fetcher(url, videoId);
       setData(data);
@@ -597,6 +599,7 @@ export default function Dashboard() {
           onSourceClick={handleSourceClick}
           externalMessages={chatMessages}
           onMessagesChange={setChatMessages}
+          videoIds={[videoA?.metadata?.video_id, videoB?.metadata?.video_id].filter(Boolean)}
         />
 
         <LinkHistory links={linkHistory} onLoad={handleLoadLink} onClear={handleClearLinks} />

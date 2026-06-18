@@ -2,12 +2,14 @@ import { Pinecone } from "@pinecone-database/pinecone";
 
 class InMemoryStore {
   constructor() {
-    this.chunks = [];
+    this.namespaces = {};
   }
 
-  async addChunks(embeddedChunks) {
+  async addChunks(embeddedChunks, namespace) {
+    const ns = namespace || "_default";
+    if (!this.namespaces[ns]) this.namespaces[ns] = [];
     for (const c of embeddedChunks) {
-      this.chunks.push({
+      this.namespaces[ns].push({
         id: `${c.video_id}_${c.index}`,
         text: c.text,
         video_id: c.video_id,
@@ -16,11 +18,16 @@ class InMemoryStore {
         embedding: c.embedding,
       });
     }
-    return this.chunks.length;
+    return this.namespaces[ns].length;
   }
 
-  async query(queryEmbedding, topK = 5) {
-    const scored = this.chunks.map((c) => ({
+  async query(queryEmbedding, topK = 5, filter = {}, namespace) {
+    const ns = namespace || "_default";
+    let chunks = this.namespaces[ns] || [];
+    if (filter.video_id?.$in) {
+      chunks = chunks.filter((c) => filter.video_id.$in.includes(c.video_id));
+    }
+    const scored = chunks.map((c) => ({
       ...c,
       score: cosineSimilarity(queryEmbedding, c.embedding),
     }));
@@ -29,11 +36,12 @@ class InMemoryStore {
   }
 
   async count() {
-    return this.chunks.length;
+    return Object.values(this.namespaces).reduce((s, arr) => s + arr.length, 0);
   }
 
-  async deleteAll() {
-    this.chunks = [];
+  async deleteAll(namespace) {
+    const ns = namespace || "_default";
+    this.namespaces[ns] = [];
   }
 }
 
@@ -53,7 +61,7 @@ class PineconeStore {
     this.index = index;
   }
 
-  async addChunks(embeddedChunks) {
+  async addChunks(embeddedChunks, namespace) {
     const vectors = embeddedChunks.map((c) => ({
       id: `${c.video_id}_${c.index}`,
       values: c.embedding,
@@ -67,9 +75,9 @@ class PineconeStore {
 
     try {
       for (let i = 0; i < vectors.length; i += 100) {
-        await this.index.upsert({ records: vectors.slice(i, i + 100) });
+        await this.index.upsert({ records: vectors.slice(i, i + 100), namespace });
       }
-      console.log(`Pinecone: upserted ${vectors.length} vectors`);
+      console.log(`Pinecone: upserted ${vectors.length} vectors in namespace "${namespace}"`);
     } catch (e) {
       console.error("Pinecone upsert failed:", e.message);
     }
@@ -77,15 +85,17 @@ class PineconeStore {
     return vectors.length;
   }
 
-  async query(queryEmbedding, topK = 5) {
+  async query(queryEmbedding, topK = 5, filter = {}, namespace) {
     try {
       const result = await this.index.query({
         vector: queryEmbedding,
         topK,
         includeMetadata: true,
+        filter: Object.keys(filter).length > 0 ? filter : undefined,
+        namespace,
       });
 
-      console.log(`Pinecone: query returned ${result.matches.length} matches`);
+      console.log(`Pinecone: query returned ${result.matches.length} matches in namespace "${namespace}"`);
 
       return result.matches.map((m) => ({
         id: m.id,
@@ -101,9 +111,11 @@ class PineconeStore {
     }
   }
 
-  async count() {
+  async count(namespace) {
     try {
-      const stats = await this.index.describeIndexStats();
+      const stats = namespace
+        ? await this.index.describeIndexStats()
+        : await this.index.describeIndexStats();
       return stats.totalRecordCount || 0;
     } catch (e) {
       console.error("Pinecone count failed:", e.message);
@@ -111,9 +123,13 @@ class PineconeStore {
     }
   }
 
-  async deleteAll() {
-    // Pinecone free tier doesn't support delete by namespace easily
-    // Users can delete from Pinecone console
+  async deleteAll(namespace) {
+    try {
+      await this.index.deleteAll({ namespace });
+      console.log(`Pinecone: deleted all vectors in namespace "${namespace}"`);
+    } catch (e) {
+      console.error("Pinecone deleteAll failed:", e.message);
+    }
   }
 }
 
