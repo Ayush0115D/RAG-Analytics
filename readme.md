@@ -1,12 +1,12 @@
 # RAG Chatbot
 
-A full-stack Retrieval-Augmented Generation chatbot that compares YouTube and Instagram Reel videos by extracting transcripts, computing engagement metrics, and answering contextual questions via an LLM-powered chat interface.
+A full-stack Retrieval-Augmented Generation chatbot that compares Instagram Reel videos (fully working) with YouTube videos (metadata only — transcript extraction blocked on cloud hosting) by computing engagement metrics and answering contextual questions via an LLM-powered chat interface.
 
 ## Features
 
 - **Video Input** — paste YouTube and Instagram Reel URLs
-- **Transcript Extraction** — YouTube captions via `youtube-transcript`, Instagram audio transcription via Gemini
-- **Metadata & Engagement** — views, likes, comments, follower count, engagement rate via YouTube Data API + yt-dlp
+- **Transcript Extraction** — Instagram audio transcription via Gemini; YouTube transcript extraction is limited (see [Limitations](#limitations))
+- **Metadata & Engagement** — views, likes, comments, follower count, engagement rate via YouTube Data API (YouTube) and yt-dlp (Instagram)
 - **Vector Search** — chunks transcripts (~500 tokens with overlap), embeds via Gemini REST API (`gemini-embedding-001`, 3072-dim), stores in Pinecone serverless vector DB
 - **RAG Chat** — retrieves top-5 relevant chunks, streams answer via Gemini 2.5 Flash with SSE
 - **Dark/Light Theme** — CSS variables with toggle, clean card-based UI
@@ -28,8 +28,8 @@ A full-stack Retrieval-Augmented Generation chatbot that compares YouTube and In
 | Embeddings | `gemini-embedding-001` via REST API (3072-dim) |
 | Vector DB | Pinecone (serverless, 3072-dim, cosine metric) |
 | LLM | `gemini-2.5-flash` with streaming |
-| Transcripts | `youtube-transcript`, `@distube/ytdl-core`, youtubetranscript.com API, yt-dlp |
-| Audio Transcription | Gemini inline audio (base64) |
+| YouTube Transcripts | 4 methods attempted — all return 0 entries on Render (see [Limitations](#limitations)) |
+| Instagram Audio Transcript | yt-dlp download → Gemini inline audio (base64) transcription |
 | Video Metadata | YouTube Data API v3, yt-dlp |
 
 ## Setup
@@ -87,7 +87,7 @@ User → Frontend (React + Tailwind) → Backend (Express)
 
 1. User pastes YouTube and Instagram Reel URLs into input fields
 2. Each "Fetch" button calls its respective backend endpoint
-3. Transcripts are chunked (500 tokens, 50 overlap), embedded via Gemini, upserted to Pinecone
+3. Transcripts (Instagram always; YouTube only if available locally) are chunked (500 tokens, 50 overlap), embedded via Gemini, upserted to Pinecone
 4. Chat queries embed the question, find top-5 similar chunks via cosine similarity
 5. Gemini 2.5 Flash answers with source citations streamed via SSE
 
@@ -118,12 +118,51 @@ User → Frontend (React + Tailwind) → Backend (Express)
 |-----------|-------------|
 | Gemini API (embed + generate + transcribe) | ~$0 (free tier) |
 | YouTube Data API | $0 (10K quota/day free) |
-| yt-dlp downloads | Bandwidth only |
+| yt-dlp downloads (Instagram only) | Bandwidth only |
 | Pinecone | Free serverless tier |
 | Hosting (Render + Vercel) | $0 (free tiers) |
 
-### Bottlenecks
+#
 
-1. **Instagram transcription** — yt-dlp download + Gemini audio transcription takes ~5-15s per reel. Parallelize with a job queue (BullMQ + Redis) at scale.
-2. **YouTube quota** — 10K requests/day free. Upgrade to paid ($0.03/1K) beyond that.
-3. **Instagram cookies** — expire periodically; re-export required.
+## Limitations
+
+### YouTube Transcripts on Cloud Hosting (Render)
+
+YouTube transcripts do **not** work when the backend is deployed on Render (or similar cloud platforms). All 4 attempted transcript methods return an empty array `[]`:
+
+| Method | What It Does | Why It Fails on Render |
+|--------|-------------|----------------------|
+| `youtube-transcript` npm package | Fetches transcript via YouTube's internal API | Unknown — returns 0 entries (possibly rate-limited or IP-blocked for Render's egress IP range) |
+| `@distube/ytdl-core` caption tracks | Parses `player_response` for `captionTracks`, fetches the XML caption URL | `ytdl.getInfo()` succeeds but `captionTracks` array is empty — YouTube omits captions from the player response for Render IPs |
+| `youtubetranscript.com` text page | Scrapes `youtubetranscript.com/?v=VIDEO_ID` | Returns HTML with no transcript data — the site is a client-side JS app, not a plain-text endpoint |
+| `youtubetranscript.com` API | Calls `youtubetranscript.com/api?vid=VIDEO_ID` | Returns **404** — the API endpoint no longer exists |
+
+**Root cause:** YouTube's anti-bot measures block Render's IP range. This affects all methods that rely on YouTube's internal endpoints or CDN (`googlevideo.com`). Audio download (for Gemini transcription) is also blocked at the CDN level — this is an infrastructure limitation, not an auth issue, so OAuth/cookies do not help. Upgrading from Render's free to paid tier does not change the IP range — same problem.
+
+**What does work:**
+- YouTube metadata (title, views, likes, comments, duration, thumbnail, channel subscriber count) — via YouTube Data API v3 ✓
+- Instagram reels (audio download + Gemini transcription + metadata) — fully functional ✓
+
+**What does not work on Render:**
+- YouTube transcripts (all methods) ✗
+- YouTube audio download for Gemini transcription ✗
+
+**Local development:** YouTube transcripts may work locally depending on your IP address. The limitation is specific to cloud deployment environments with datacenter IP ranges.
+
+### How Production Services Solve This
+
+Companies that reliably extract YouTube transcripts at scale use one of the following approaches — none of which are hobby-level npm packages:
+
+1. **YouTube Data API captions.download (official, limited)**
+   The only official way. `GET https://www.googleapis.com/youtube/v3/captions/{id}` returns the raw caption file. Requires OAuth 2.0 with the channel owner's consent. Only works for videos that have **manually uploaded** captions (not auto-generated). Most YouTube content does not qualify.
+
+2. **Residential proxies**
+   Route requests through real home IPs (BrightData, Oxylabs, ScrapingBee). YouTube cannot distinguish them from regular users. The transcripts can then be fetched via headless browser or even direct API calls. Cost: ~$5–$15/GB of proxy traffic. This is the most common production approach.
+
+3. **Headless browser + residential IP**
+   Run Playwright/Puppeteer to fully render YouTube's watch page, let the client-side JS load the `timedtext` API response, and extract captions from the DOM. Combined with a residential proxy, this mimics a real user exactly. Still blocked if using a datacenter IP.
+
+4. **youtubetranscript.com with headless rendering**
+   The site `youtubetranscript.com` still shows transcripts in the browser (client-side JS renders them after fetch). A headless browser can wait for the DOM to populate and extract the text. The `/api?vid=` endpoint no longer exists, so direct HTTP fetch of plain text is impossible.
+
+**Key takeaway:** The `youtube-transcript` npm package, `ytdl-core`, and `youtubetranscript.com` API are hobby tools that break frequently. Production services use the official YouTube Data API captions endpoint (limited scope) or residential proxies with headless browsers (paid, reliable). Neither approach fits a free-tier hobby project.
