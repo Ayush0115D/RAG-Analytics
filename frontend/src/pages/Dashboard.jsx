@@ -266,6 +266,11 @@ function VideoCard({ data, label, loading, error, url, isYT }) {
           <span className="opacity-30">·</span>
           <span>{Math.floor(m.duration / 60)}:{(m.duration % 60).toString().padStart(2, "0")}</span>
         </div>
+        {!data.transcript?.length && (
+          <p className="text-xs text-amber-400 m-0">
+            {data.transcript_error || "No transcript was available for this video."}
+          </p>
+        )}
         {m.hashtags?.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {m.hashtags.slice(0, 5).map((t, i) => (
@@ -375,7 +380,7 @@ function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessa
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3 opacity-30">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-            <p className="text-sm">{disabled ? "Load a video to start asking questions." : hasBoth ? "Both videos loaded. Ask a question to compare them." : "Ask a question about the video."}</p>
+            <p className="text-sm">{disabled ? "Load a video with a transcript to start asking questions." : hasBoth ? "Both videos loaded. Ask a question to compare them." : "Ask a question about the video."}</p>
           </div>
         )}
         {messages.map((msg, i) => <ChatMessage key={i} msg={msg} onSourceClick={onSourceClick} />)}
@@ -383,7 +388,7 @@ function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessa
       </div>
 
       <div className="flex gap-2.5 px-5 py-4 border-t border-[var(--border)]">
-        <textarea placeholder={disabled ? "Fetch a video first..." : streaming ? "Waiting for response..." : "Ask a question about the video..."}
+        <textarea placeholder={disabled ? "Fetch a video with a transcript first..." : streaming ? "Waiting for response..." : "Ask a question about the video..."}
           className="input-field flex-1 resize-none min-h-[40px] max-h-[120px]" value={input}
           onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
           disabled={disabled || streaming} rows={1} />
@@ -475,7 +480,7 @@ function saveState(state) {
 
 function cleanVideo(video) {
   if (!video) return null;
-  return { metadata: video.metadata, transcript: video.transcript };
+  return { metadata: video.metadata, transcript: video.transcript, transcript_error: video.transcript_error };
 }
 
 export default function Dashboard() {
@@ -526,12 +531,18 @@ export default function Dashboard() {
     try {
       const data = await fetcher(url, videoId);
       setData(data);
-      await ingestVideo(data.transcript, videoId);
+      const hasTranscript = Array.isArray(data.transcript) && data.transcript.length > 0;
+      if (hasTranscript) await ingestVideo(data.transcript, videoId);
       setLinkHistory((prev) => {
         const next = [...prev, { id: Date.now(), url, platform, videoId, timestamp: new Date().toLocaleString() }];
         return next.length > 20 ? next.slice(next.length - 20) : next;
       });
-      notify("success", `${videoId === "A" ? "YouTube" : "Instagram"} video fetched & ingested`);
+      notify(
+        hasTranscript ? "success" : "info",
+        hasTranscript
+          ? `${videoId === "A" ? "YouTube" : "Instagram"} video fetched & ingested`
+          : data.transcript_error || "Video loaded, but no transcript was available."
+      );
     } catch (err) {
       setError(err.message);
       notify("error", err.message);
@@ -594,7 +605,7 @@ export default function Dashboard() {
         </div>
 
         <ChatPanel
-          disabled={!(videoA || videoB)}
+          disabled={!(videoA?.transcript?.length || videoB?.transcript?.length)}
           hasBoth={hasBoth}
           onSourceClick={handleSourceClick}
           externalMessages={chatMessages}

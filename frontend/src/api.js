@@ -62,7 +62,26 @@ export async function fetchYouTube(url, videoId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, video_id: videoId, session_id: getSessionId() }),
   });
-  return handleRes(res);
+  const data = await handleRes(res);
+  if (!data.transcript_job_id) return data;
+
+  const jobId = encodeURIComponent(data.transcript_job_id);
+  for (let attempt = 0; attempt < 300; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const jobRes = await fetch(`${API_URL}/api/youtube/transcript/${jobId}`);
+    const job = await handleRes(jobRes);
+    if (job.status === "completed") {
+      return {
+        ...data,
+        transcript: job.transcript,
+        transcript_job_id: undefined,
+        transcript_source: "supadata",
+        transcript_error: undefined,
+      };
+    }
+  }
+
+  throw new Error("YouTube transcript processing exceeded five minutes. Please retry.");
 }
 
 export async function fetchInstagram(url, videoId) {

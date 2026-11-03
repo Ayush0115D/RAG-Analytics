@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { getYouTubeData } from "./services/youtube.js";
+import { getYouTubeData, getSupadataTranscriptJob } from "./services/youtube.js";
 import { getInstagramData, ensureYtDlp } from "./services/instagram.js";
 import { getStore } from "./services/vectorstore.js";
 import { embedChunks, embedQuery } from "./services/embeddings.js";
@@ -99,6 +99,14 @@ app.post("/api/youtube", async (req, res) => {
     res.json(data);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+app.get("/api/youtube/transcript/:jobId", async (req, res) => {
+  try {
+    res.json(await getSupadataTranscriptJob(req.params.jobId));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
 });
 

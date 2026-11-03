@@ -1,11 +1,11 @@
 # RAG Chatbot
 
-A full-stack Retrieval-Augmented Generation chatbot that compares Instagram Reel videos (fully working) with YouTube videos (metadata only — transcript extraction blocked on cloud hosting) by computing engagement metrics and answering contextual questions via an LLM-powered chat interface.
+A full-stack Retrieval-Augmented Generation chatbot that compares Instagram Reel and YouTube videos by computing engagement metrics and answering contextual questions via an LLM-powered chat interface.
 
 ## Features
 
 - **Video Input** — paste YouTube and Instagram Reel URLs
-- **Transcript Extraction** — Instagram audio transcription via Gemini; YouTube transcript extraction is limited (see [Limitations](#limitations))
+- **Transcript Extraction** — Instagram audio transcription via Gemini; production YouTube transcription via Supadata when configured (see [Limitations](#limitations))
 - **Metadata & Engagement** — views, likes, comments, follower count, engagement rate via YouTube Data API (YouTube) and yt-dlp (Instagram)
 - **Vector Search** — chunks transcripts (~500 tokens with overlap), embeds via Gemini REST API (`gemini-embedding-001`, 3072-dim), stores in Pinecone serverless vector DB
 - **RAG Chat** — retrieves top-5 relevant chunks, streams answer via Gemini 2.5 Flash with SSE
@@ -28,7 +28,7 @@ A full-stack Retrieval-Augmented Generation chatbot that compares Instagram Reel
 | Embeddings | `gemini-embedding-001` via REST API (3072-dim) |
 | Vector DB | Pinecone (serverless, 3072-dim, cosine metric) |
 | LLM | `gemini-2.5-flash` with streaming |
-| YouTube Transcripts | 4 methods attempted — all return 0 entries on Render (see [Limitations](#limitations)) |
+| YouTube Transcripts | Supadata API in production, with direct YouTube fallbacks |
 | Instagram Audio Transcript | yt-dlp download → Gemini inline audio (base64) transcription |
 | Video Metadata | YouTube Data API v3, yt-dlp |
 
@@ -73,7 +73,8 @@ On Render, set `INSTAGRAM_COOKIES_B64` in the dashboard. On local, place `instag
 
 ```
 User → Frontend (React + Tailwind) → Backend (Express)
-  → /api/youtube        → YouTube Data API + transcript fallbacks
+  → /api/youtube        → YouTube Data API + Supadata transcript provider + direct fallbacks
+  → /api/youtube/transcript/:jobId → poll long-running Supadata transcript jobs
   → /api/instagram      → yt-dlp dump-json + audio → Gemini transcription
   → /api/ingest         → chunk → Gemini embed → Pinecone upsert
   → /api/chat           → Pinecone query → top-5 chunks → Gemini stream
@@ -87,7 +88,7 @@ User → Frontend (React + Tailwind) → Backend (Express)
 
 1. User pastes YouTube and Instagram Reel URLs into input fields
 2. Each "Fetch" button calls its respective backend endpoint
-3. Transcripts (Instagram always; YouTube only if available locally) are chunked (500 tokens, 50 overlap), embedded via Gemini, upserted to Pinecone
+3. Available transcripts are chunked (500 tokens, 50 overlap), embedded via Gemini, and upserted to Pinecone
 4. Chat queries embed the question, find top-5 similar chunks via cosine similarity
 5. Gemini 2.5 Flash answers with source citations streamed via SSE
 
@@ -97,6 +98,9 @@ User → Frontend (React + Tailwind) → Backend (Express)
 - **Backend** — Render Web Service
 - **Pinecone** — Serverless index (free tier)
 - **Instagram** — `INSTAGRAM_COOKIES_B64` env var on Render (base64-encoded cookies.txt)
+- **YouTube transcripts** — set `SUPADATA_API_KEY` in the Render backend environment, then redeploy. Create a key at [Supadata](https://dash.supadata.ai/organizations/api-key). Keep the key server-side; never add it to the frontend.
+
+`SUPADATA_MODE=auto` (default) tries existing captions and can generate a transcript when captions are unavailable; generated transcripts may incur Supadata usage charges. Set `SUPADATA_MODE=native` to use existing captions only. `SUPADATA_LANG=en` selects the preferred language.
 
 ## API Endpoints
 
@@ -106,6 +110,7 @@ User → Frontend (React + Tailwind) → Backend (Express)
 | POST | `/api/auth/login` | No | Login, returns JWT |
 | GET | `/api/auth/me` | Bearer | Verify token, get user |
 | POST | `/api/youtube` | No | Fetch YouTube video metadata + transcript |
+| GET | `/api/youtube/transcript/:jobId` | No | Check an asynchronous YouTube transcript job |
 | POST | `/api/instagram` | No | Fetch Instagram reel metadata + transcript |
 | POST | `/api/ingest` | No | Chunk + embed + store transcript |
 | POST | `/api/chat` | No | Ask question, stream SSE response |
@@ -118,6 +123,7 @@ User → Frontend (React + Tailwind) → Backend (Express)
 |-----------|-------------|
 | Gemini API (embed + generate + transcribe) | ~$0 (free tier) |
 | YouTube Data API | $0 (10K quota/day free) |
+| Supadata YouTube transcription | Usage-based; `auto` may generate transcripts |
 | yt-dlp downloads (Instagram only) | Bandwidth only |
 | Pinecone | Free serverless tier |
 | Hosting (Render + Vercel) | $0 (free tiers) |
@@ -128,7 +134,7 @@ User → Frontend (React + Tailwind) → Backend (Express)
 
 ### YouTube Transcripts on Cloud Hosting (Render)
 
-YouTube transcripts do **not** work when the backend is deployed on Render (or similar cloud platforms). All 4 attempted transcript methods return an empty array `[]`:
+Direct YouTube transcript extraction can fail from Render because YouTube blocks or limits requests from some datacenter IP ranges. The app now supports Supadata as a production transcript provider. Configure `SUPADATA_API_KEY` on the backend to route transcript requests through Supadata; long-running transcription jobs are polled asynchronously. If the key is not configured, the backend continues trying its original direct methods:
 
 | Method | What It Does | Why It Fails on Render |
 |--------|-------------|----------------------|
@@ -137,32 +143,29 @@ YouTube transcripts do **not** work when the backend is deployed on Render (or s
 | `youtubetranscript.com` text page | Scrapes `youtubetranscript.com/?v=VIDEO_ID` | Returns HTML with no transcript data — the site is a client-side JS app, not a plain-text endpoint |
 | `youtubetranscript.com` API | Calls `youtubetranscript.com/api?vid=VIDEO_ID` | Returns **404** — the API endpoint no longer exists |
 
-**Root cause:** YouTube's anti-bot measures block Render's IP range. This affects all methods that rely on YouTube's internal endpoints or CDN (`googlevideo.com`). Audio download (for Gemini transcription) is also blocked at the CDN level — this is an infrastructure limitation, not an auth issue, so OAuth/cookies do not help. Upgrading from Render's free to paid tier does not change the IP range — same problem.
+**Root cause:** direct methods rely on YouTube's internal endpoints or CDN (`googlevideo.com`), which can block datacenter egress IPs. The Supadata integration avoids relying on Render's YouTube egress IP for transcript retrieval. It is an external service and does not guarantee a transcript for private, unavailable, or unsupported videos.
 
 **What does work:**
 - YouTube metadata (title, views, likes, comments, duration, thumbnail, channel subscriber count) — via YouTube Data API v3 ✓
 - Instagram reels (audio download + Gemini transcription + metadata) — fully functional ✓
 
-**What does not work on Render:**
-- YouTube transcripts (all methods) ✗
+**What still does not work on Render without a provider key:**
+- YouTube transcripts when YouTube blocks the Render IP ✗
 - YouTube audio download for Gemini transcription ✗
 
-**Local development:** YouTube transcripts may work locally depending on your IP address. The limitation is specific to cloud deployment environments with datacenter IP ranges.
+**Production setup:** create a Supadata API key and add it as `SUPADATA_API_KEY` in Render's backend environment variables. Leave `SUPADATA_MODE` unset for `auto`, or set it to `native` to avoid AI transcript generation (only videos with available captions can then work). Redeploy the backend after setting the variable. If no transcript is available, the dashboard displays a warning instead of reporting a successful ingestion.
 
 ### How Production Services Solve This
 
-Companies that reliably extract YouTube transcripts at scale use one of the following approaches — none of which are hobby-level npm packages:
+For public videos where the owner has not granted caption access, a hosted transcript provider is the most practical option for this app. Alternatives include:
 
 1. **YouTube Data API captions.download (official, limited)**
    The only official way. `GET https://www.googleapis.com/youtube/v3/captions/{id}` returns the raw caption file. Requires OAuth 2.0 with the channel owner's consent. Only works for videos that have **manually uploaded** captions (not auto-generated). Most YouTube content does not qualify.
 
-2. **Residential proxies**
-   Route requests through real home IPs (BrightData, Oxylabs, ScrapingBee). YouTube cannot distinguish them from regular users. The transcripts can then be fetched via headless browser or even direct API calls. Cost: ~$5–$15/GB of proxy traffic. This is the most common production approach.
+2. **Hosted transcript API (implemented)**
+   Supadata provides YouTube transcript retrieval and optional AI transcription through an API key. The backend integration is enabled by `SUPADATA_API_KEY`; `auto` may consume paid usage, while `native` only fetches existing captions.
 
-3. **Headless browser + residential IP**
-   Run Playwright/Puppeteer to fully render YouTube's watch page, let the client-side JS load the `timedtext` API response, and extract captions from the DOM. Combined with a residential proxy, this mimics a real user exactly. Still blocked if using a datacenter IP.
+3. **Deploy where direct YouTube access is available**
+   A different host or egress network may work, but YouTube can still restrict datacenter IPs, so this is not a dependable fix by itself.
 
-4. **youtubetranscript.com with headless rendering**
-   The site `youtubetranscript.com` still shows transcripts in the browser (client-side JS renders them after fetch). A headless browser can wait for the DOM to populate and extract the text. The `/api?vid=` endpoint no longer exists, so direct HTTP fetch of plain text is impossible.
-
-**Key takeaway:** The `youtube-transcript` npm package, `ytdl-core`, and `youtubetranscript.com` API are hobby tools that break frequently. Production services use the official YouTube Data API captions endpoint (limited scope) or residential proxies with headless browsers (paid, reliable). Neither approach fits a free-tier hobby project.
+**Key takeaway:** changing retries or adding YouTube cookies to Render does not solve a network-level IP restriction. The implemented provider is the recommended production method; it requires a backend API key and may incur provider usage charges.

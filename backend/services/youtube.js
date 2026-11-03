@@ -41,15 +41,79 @@ function parseCaptionXml(xml) {
   })).filter((e) => e.text && !e.text.includes("<") && e.text.trim());
 }
 
+export function normalizeSupadataTranscript(content) {
+  const segments = typeof content === "string" ? [{ text: content }] : Array.isArray(content) ? content : [];
+  return segments.map((segment) => ({
+    text: String(segment.text || "").trim(),
+    offset: Number(segment.offset) || 0,
+    dur: Number(segment.duration) || 0,
+  })).filter((segment) => segment.text);
+}
+
+async function requestSupadataTranscript(videoId) {
+  const apiKey = process.env.SUPADATA_API_KEY;
+  if (!apiKey) return null;
+
+  const { data, status } = await axios.get("https://api.supadata.ai/v1/transcript", {
+    params: {
+      url: `https://www.youtube.com/watch?v=${videoId}`,
+      mode: process.env.SUPADATA_MODE || "auto",
+      lang: process.env.SUPADATA_LANG || "en",
+    },
+    headers: { "x-api-key": apiKey },
+    timeout: 20000,
+  });
+
+  if (status === 202 || data.jobId) {
+    if (!data.jobId) throw new Error("Supadata started a transcript job without returning its job ID");
+    return { jobId: data.jobId };
+  }
+  return { transcript: normalizeSupadataTranscript(data.content) };
+}
+
+export async function getSupadataTranscriptJob(jobId) {
+  if (!process.env.SUPADATA_API_KEY) throw new Error("SUPADATA_API_KEY is not configured");
+  if (!jobId || !/^[\w-]+$/.test(jobId)) throw new Error("Invalid transcript job ID");
+
+  const { data } = await axios.get(`https://api.supadata.ai/v1/transcript/${encodeURIComponent(jobId)}`, {
+    headers: { "x-api-key": process.env.SUPADATA_API_KEY },
+    timeout: 10000,
+  });
+
+  if (data.status === "failed") throw new Error(data.error || "Transcript processing failed");
+  if (data.status === "completed") {
+    const transcript = normalizeSupadataTranscript(data.content);
+    if (transcript.length === 0) throw new Error("No speech was found in the video");
+    return { status: data.status, transcript };
+  }
+  if (data.status === "queued" || data.status === "active") return { status: data.status };
+  throw new Error(data.error || `Unexpected transcript job status: ${data.status}`);
+}
+
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 const cookieStr = loadCookieString();
 const cookieHeader = cookieStr ? { Cookie: cookieStr } : {};
 const headers = { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9", ...cookieHeader };
 
 async function fetchTranscript(videoId) {
+  let supadataError = "";
+  if (process.env.SUPADATA_API_KEY) {
+    try {
+      const result = await requestSupadataTranscript(videoId);
+      if (result.jobId) return { transcript: [], jobId: result.jobId, source: "supadata" };
+      if (result.transcript.length > 0) {
+        console.log("Transcript via Supadata:", result.transcript.length);
+        return { transcript: result.transcript, source: "supadata" };
+      }
+    } catch (e) {
+      supadataError = e.response?.data?.message || e.message;
+      console.warn("Supadata transcript:", supadataError);
+    }
+  }
+
   try {
     const raw = await YoutubeTranscript.fetchTranscript(videoId);
-    if (raw?.length > 0) { console.log("Transcript via youtube-transcript:", raw.length); return raw.map((t) => ({ text: t.text, offset: t.offset || 0, dur: t.duration || 0 })); }
+    if (raw?.length > 0) { console.log("Transcript via youtube-transcript:", raw.length); return { transcript: raw.map((t) => ({ text: t.text, offset: t.offset || 0, dur: t.duration || 0 })), source: "youtube-transcript" }; }
   } catch (e) { console.warn("Method 1:", e.message); }
   await delay(500);
 
@@ -60,7 +124,7 @@ async function fetchTranscript(videoId) {
       const track = tracks.find((t) => t.languageCode === "en" || t.languageCode?.startsWith("en")) || tracks[0];
       const { data: xml } = await axios.get(track.baseUrl, { headers, timeout: 15000 });
       const parsed = parseCaptionXml(xml);
-      if (parsed.length > 0) { console.log("Transcript via ytdl captions:", parsed.length); return parsed; }
+      if (parsed.length > 0) { console.log("Transcript via ytdl captions:", parsed.length); return { transcript: parsed, source: "ytdl" }; }
     }
   } catch (e) { console.warn("Method 2:", e.message); }
   await delay(500);
@@ -72,7 +136,7 @@ async function fetchTranscript(videoId) {
         const m = line.match(/^\[(\d+)\s*s\]\s*(.+)$/);
         return m ? { text: m[2].trim(), offset: parseInt(m[1]) * 1000, dur: 0 } : { text: line.trim(), offset: 0, dur: 0 };
       }).filter((t) => t.text && !t.text.includes("<"));
-      if (parsed.length > 0) { console.log("Transcript via youtubetranscript.com:", parsed.length); return parsed; }
+      if (parsed.length > 0) { console.log("Transcript via youtubetranscript.com:", parsed.length); return { transcript: parsed, source: "youtubetranscript.com" }; }
     }
   } catch (e) { console.warn("Method 3:", e.message); }
   await delay(500);
@@ -81,11 +145,11 @@ async function fetchTranscript(videoId) {
     const { data } = await axios.get(`https://youtubetranscript.com/api?vid=${videoId}`, { headers: { "User-Agent": UA, Accept: "application/json" }, timeout: 15000 });
     if (Array.isArray(data) && data.length > 0) {
       const parsed = data.map((item) => ({ text: item.text, offset: Math.round(parseFloat(item.offset) * 1000), dur: Math.round(parseFloat(item.duration) * 1000) }));
-      console.log("Transcript via youtubetranscript API:", parsed.length); return parsed;
+      console.log("Transcript via youtubetranscript API:", parsed.length); return { transcript: parsed, source: "youtubetranscript.com" };
     }
   } catch (e) { console.warn("Method 4:", e.message); }
 
-  return [];
+  return { transcript: [], source: "none", error: supadataError };
 }
 
 export async function getYouTubeData(url) {
@@ -126,5 +190,16 @@ export async function getYouTubeData(url) {
 
   meta.engagement_rate = meta.views > 0 ? (((meta.likes + meta.comments) / meta.views) * 100).toFixed(2) : "0.00";
 
-  return { transcript: await fetchTranscript(videoId), metadata: meta };
+  const transcriptResult = await fetchTranscript(videoId);
+  return {
+    transcript: transcriptResult.transcript,
+    metadata: meta,
+    transcript_job_id: transcriptResult.jobId,
+    transcript_source: transcriptResult.source,
+    transcript_error: transcriptResult.transcript.length === 0 && !transcriptResult.jobId
+      ? transcriptResult.error || (process.env.SUPADATA_API_KEY
+        ? "No transcript was found. Check that the video is public and that Supadata supports it."
+        : "No transcript was available. Configure SUPADATA_API_KEY on the backend for production transcript extraction.")
+      : undefined,
+  };
 }
