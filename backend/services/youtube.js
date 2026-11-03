@@ -1,5 +1,3 @@
-import { YoutubeTranscript } from "youtube-transcript";
-import ytdl from "@distube/ytdl-core";
 import axios from "axios";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
@@ -14,31 +12,6 @@ function parseNum(str) {
   if (!str) return 0;
   const n = Number(String(str).replace(/,/g, ""));
   return isNaN(n) ? 0 : n;
-}
-
-function loadCookieString() {
-  const raw = process.env.YOUTUBE_COOKIES || "";
-  if (!raw) return "";
-  try { const arr = JSON.parse(raw); if (Array.isArray(arr)) return arr.map((c) => `${c.name}=${c.value}`).join("; "); } catch {}
-  if (raw.includes(";")) return raw;
-  return raw.replace(/\\n/g, "\n").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))
-    .map((l) => {
-      const parts = l.split("\t");
-      if (parts.length >= 7) return `${parts[5]}=${parts[6]}`;
-      const eq = l.indexOf("=");
-      if (eq > 0) return `${l.slice(0, eq).trim()}=${l.slice(eq + 1).trim()}`;
-      return null;
-    }).filter(Boolean).join("; ");
-}
-
-function parseCaptionXml(xml) {
-  if (!xml || typeof xml !== "string" || xml.length < 50 || /<!DOCTYPE|<html|<head/i.test(xml)) return [];
-  return (xml.match(/<text[^>]*>([^<]*)<\/text>/g) || []).map((m) => ({
-    text: m.replace(/<text[^>]*>/, "").replace(/<\/text>/, "")
-      .replace(/&#39;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">"),
-    offset: 0,
-    dur: 0,
-  })).filter((e) => e.text && !e.text.includes("<") && e.text.trim());
 }
 
 export function normalizeSupadataTranscript(content) {
@@ -90,66 +63,33 @@ export async function getSupadataTranscriptJob(jobId) {
   throw new Error(data.error || `Unexpected transcript job status: ${data.status}`);
 }
 
-const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-const cookieStr = loadCookieString();
-const cookieHeader = cookieStr ? { Cookie: cookieStr } : {};
-const headers = { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9", ...cookieHeader };
-
 async function fetchTranscript(videoId) {
-  let supadataError = "";
-  if (process.env.SUPADATA_API_KEY) {
-    try {
-      const result = await requestSupadataTranscript(videoId);
-      if (result.jobId) return { transcript: [], jobId: result.jobId, source: "supadata" };
-      if (result.transcript.length > 0) {
-        console.log("Transcript via Supadata:", result.transcript.length);
-        return { transcript: result.transcript, source: "supadata" };
-      }
-    } catch (e) {
-      supadataError = e.response?.data?.message || e.message;
-      console.warn("Supadata transcript:", supadataError);
-    }
+  if (!process.env.SUPADATA_API_KEY) {
+    console.error("YouTube transcript unavailable: SUPADATA_API_KEY is not configured");
+    return {
+      transcript: [],
+      source: "supadata",
+      error: "YouTube transcription is not configured. Add SUPADATA_API_KEY to the backend environment.",
+    };
   }
 
   try {
-    const raw = await YoutubeTranscript.fetchTranscript(videoId);
-    if (raw?.length > 0) { console.log("Transcript via youtube-transcript:", raw.length); return { transcript: raw.map((t) => ({ text: t.text, offset: t.offset || 0, dur: t.duration || 0 })), source: "youtube-transcript" }; }
-  } catch (e) { console.warn("Method 1:", e.message); }
-  await delay(500);
-
-  try {
-    const info = await ytdl.getInfo(videoId, { requestOptions: { headers } });
-    const tracks = info.player_response?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (tracks?.length > 0) {
-      const track = tracks.find((t) => t.languageCode === "en" || t.languageCode?.startsWith("en")) || tracks[0];
-      const { data: xml } = await axios.get(track.baseUrl, { headers, timeout: 15000 });
-      const parsed = parseCaptionXml(xml);
-      if (parsed.length > 0) { console.log("Transcript via ytdl captions:", parsed.length); return { transcript: parsed, source: "ytdl" }; }
+    const result = await requestSupadataTranscript(videoId);
+    if (result.jobId) return { transcript: [], jobId: result.jobId, source: "supadata" };
+    if (result.transcript.length > 0) {
+      console.log("Transcript via Supadata:", result.transcript.length);
+      return { transcript: result.transcript, source: "supadata" };
     }
-  } catch (e) { console.warn("Method 2:", e.message); }
-  await delay(500);
-
-  try {
-    const { data } = await axios.get(`https://youtubetranscript.com/?v=${videoId}`, { headers, timeout: 15000 });
-    if (typeof data === "string") {
-      const parsed = data.split("\n").filter((l) => l.trim()).map((line) => {
-        const m = line.match(/^\[(\d+)\s*s\]\s*(.+)$/);
-        return m ? { text: m[2].trim(), offset: parseInt(m[1]) * 1000, dur: 0 } : { text: line.trim(), offset: 0, dur: 0 };
-      }).filter((t) => t.text && !t.text.includes("<"));
-      if (parsed.length > 0) { console.log("Transcript via youtubetranscript.com:", parsed.length); return { transcript: parsed, source: "youtubetranscript.com" }; }
-    }
-  } catch (e) { console.warn("Method 3:", e.message); }
-  await delay(500);
-
-  try {
-    const { data } = await axios.get(`https://youtubetranscript.com/api?vid=${videoId}`, { headers: { "User-Agent": UA, Accept: "application/json" }, timeout: 15000 });
-    if (Array.isArray(data) && data.length > 0) {
-      const parsed = data.map((item) => ({ text: item.text, offset: Math.round(parseFloat(item.offset) * 1000), dur: Math.round(parseFloat(item.duration) * 1000) }));
-      console.log("Transcript via youtubetranscript API:", parsed.length); return { transcript: parsed, source: "youtubetranscript.com" };
-    }
-  } catch (e) { console.warn("Method 4:", e.message); }
-
-  return { transcript: [], source: "none", error: supadataError };
+    return {
+      transcript: [],
+      source: "supadata",
+      error: "Supadata returned no transcript. Check that the video is public and supports transcription.",
+    };
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message;
+    console.error("Supadata transcript failed:", message);
+    return { transcript: [], source: "supadata", error: `Supadata transcript failed: ${message}` };
+  }
 }
 
 export async function getYouTubeData(url) {
@@ -178,7 +118,10 @@ export async function getYouTubeData(url) {
 
   if (!meta.views && !meta.title) {
     try {
-      const { data: html } = await axios.get(`https://www.youtube.com/watch?v=${videoId}`, { headers, timeout: 15000 });
+      const { data: html } = await axios.get(`https://www.youtube.com/watch?v=${videoId}`, {
+        headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9" },
+        timeout: 15000,
+      });
       const m = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/);
       if (m) {
         const pr = JSON.parse(m[1]), vd = pr.videoDetails;

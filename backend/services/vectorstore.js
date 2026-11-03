@@ -21,6 +21,11 @@ class InMemoryStore {
     return this.namespaces[ns].length;
   }
 
+  async deleteVideoChunks(videoId, namespace) {
+    const ns = namespace || "_default";
+    this.namespaces[ns] = (this.namespaces[ns] || []).filter((chunk) => chunk.video_id !== videoId);
+  }
+
   async query(queryEmbedding, topK = 5, filter = {}, namespace) {
     const ns = namespace || "_default";
     let chunks = this.namespaces[ns] || [];
@@ -73,16 +78,20 @@ class PineconeStore {
       },
     }));
 
-    try {
-      for (let i = 0; i < vectors.length; i += 100) {
-        await this.index.upsert({ records: vectors.slice(i, i + 100), namespace });
-      }
-      console.log(`Pinecone: upserted ${vectors.length} vectors in namespace "${namespace}"`);
-    } catch (e) {
-      console.error("Pinecone upsert failed:", e.message);
+    for (let i = 0; i < vectors.length; i += 100) {
+      await this.index.upsert({ records: vectors.slice(i, i + 100), namespace });
     }
+    console.log(`Pinecone: upserted ${vectors.length} vectors in namespace "${namespace}"`);
 
     return vectors.length;
+  }
+
+  async deleteVideoChunks(videoId, namespace) {
+    await this.index.deleteMany({
+      filter: { video_id: { $eq: videoId } },
+      namespace,
+    });
+    console.log(`Pinecone: deleted previous chunks for video "${videoId}" in namespace "${namespace}"`);
   }
 
   async query(queryEmbedding, topK = 5, filter = {}, namespace) {

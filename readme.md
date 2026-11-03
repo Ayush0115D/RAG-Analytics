@@ -28,7 +28,7 @@ A full-stack Retrieval-Augmented Generation chatbot that compares Instagram Reel
 | Embeddings | `gemini-embedding-001` via REST API (3072-dim) |
 | Vector DB | Pinecone (serverless, 3072-dim, cosine metric) |
 | LLM | `gemini-2.5-flash` with streaming |
-| YouTube Transcripts | Supadata API in production, with direct YouTube fallbacks |
+| YouTube Transcripts | Supadata API |
 | Instagram Audio Transcript | yt-dlp download → Gemini inline audio (base64) transcription |
 | Video Metadata | YouTube Data API v3, yt-dlp |
 
@@ -73,7 +73,7 @@ On Render, set `INSTAGRAM_COOKIES_B64` in the dashboard. On local, place `instag
 
 ```
 User → Frontend (React + Tailwind) → Backend (Express)
-  → /api/youtube        → YouTube Data API + Supadata transcript provider + direct fallbacks
+  → /api/youtube        → YouTube Data API + Supadata transcript API
   → /api/youtube/transcript/:jobId → poll long-running Supadata transcript jobs
   → /api/instagram      → yt-dlp dump-json + audio → Gemini transcription
   → /api/ingest         → chunk → Gemini embed → Pinecone upsert
@@ -134,38 +134,10 @@ User → Frontend (React + Tailwind) → Backend (Express)
 
 ### YouTube Transcripts on Cloud Hosting (Render)
 
-Direct YouTube transcript extraction can fail from Render because YouTube blocks or limits requests from some datacenter IP ranges. The app now supports Supadata as a production transcript provider. Configure `SUPADATA_API_KEY` on the backend to route transcript requests through Supadata; long-running transcription jobs are polled asynchronously. If the key is not configured, the backend continues trying its original direct methods:
+**Problem and investigation:** YouTube metadata worked, but transcript extraction failed on Render. Logs showed YouTube rate-limiting/captcha errors (`429`) and forbidden responses (`403`). Four direct approaches were tried: the `youtube-transcript` package, caption tracks via `ytdl-core`, the `youtubetranscript.com` page, and its API endpoint. All failed from Render, so adding retries or more direct scraping methods would not address the hosting IP restriction.
 
-| Method | What It Does | Why It Fails on Render |
-|--------|-------------|----------------------|
-| `youtube-transcript` npm package | Fetches transcript via YouTube's internal API | Unknown — returns 0 entries (possibly rate-limited or IP-blocked for Render's egress IP range) |
-| `@distube/ytdl-core` caption tracks | Parses `player_response` for `captionTracks`, fetches the XML caption URL | `ytdl.getInfo()` succeeds but `captionTracks` array is empty — YouTube omits captions from the player response for Render IPs |
-| `youtubetranscript.com` text page | Scrapes `youtubetranscript.com/?v=VIDEO_ID` | Returns HTML with no transcript data — the site is a client-side JS app, not a plain-text endpoint |
-| `youtubetranscript.com` API | Calls `youtubetranscript.com/api?vid=VIDEO_ID` | Returns **404** — the API endpoint no longer exists |
+**Chosen solution:** Supadata is the single YouTube transcript provider. The backend sends the video URL to Supadata and the frontend polls for long-running results. The failed direct methods are no longer called; the Supadata key stays on the server.
 
-**Root cause:** direct methods rely on YouTube's internal endpoints or CDN (`googlevideo.com`), which can block datacenter egress IPs. The Supadata integration avoids relying on Render's YouTube egress IP for transcript retrieval. It is an external service and does not guarantee a transcript for private, unavailable, or unsupported videos.
+**Production setup:** add `SUPADATA_API_KEY` to the Render backend environment and redeploy. `SUPADATA_MODE=auto` is the default and may incur provider charges; `native` uses existing captions only. If Supadata fails or returns no transcript, the dashboard reports the issue and the app does not ingest empty text. Old chunks for that video slot are cleared so stale content cannot appear in chat. Fetch the video again after deployment to replace old chunks.
 
-**What does work:**
-- YouTube metadata (title, views, likes, comments, duration, thumbnail, channel subscriber count) — via YouTube Data API v3 ✓
-- Instagram reels (audio download + Gemini transcription + metadata) — fully functional ✓
-
-**What still does not work on Render without a provider key:**
-- YouTube transcripts when YouTube blocks the Render IP ✗
-- YouTube audio download for Gemini transcription ✗
-
-**Production setup:** create a Supadata API key and add it as `SUPADATA_API_KEY` in Render's backend environment variables. Leave `SUPADATA_MODE` unset for `auto`, or set it to `native` to avoid AI transcript generation (only videos with available captions can then work). Redeploy the backend after setting the variable. If no transcript is available, the dashboard displays a warning instead of reporting a successful ingestion.
-
-### How Production Services Solve This
-
-For public videos where the owner has not granted caption access, a hosted transcript provider is the most practical option for this app. Alternatives include:
-
-1. **YouTube Data API captions.download (official, limited)**
-   The only official way. `GET https://www.googleapis.com/youtube/v3/captions/{id}` returns the raw caption file. Requires OAuth 2.0 with the channel owner's consent. Only works for videos that have **manually uploaded** captions (not auto-generated). Most YouTube content does not qualify.
-
-2. **Hosted transcript API (implemented)**
-   Supadata provides YouTube transcript retrieval and optional AI transcription through an API key. The backend integration is enabled by `SUPADATA_API_KEY`; `auto` may consume paid usage, while `native` only fetches existing captions.
-
-3. **Deploy where direct YouTube access is available**
-   A different host or egress network may work, but YouTube can still restrict datacenter IPs, so this is not a dependable fix by itself.
-
-**Key takeaway:** changing retries or adding YouTube cookies to Render does not solve a network-level IP restriction. The implemented provider is the recommended production method; it requires a backend API key and may incur provider usage charges.
+YouTube metadata is still fetched separately through the YouTube Data API. Supadata may not return a transcript for private, unavailable, or unsupported videos.

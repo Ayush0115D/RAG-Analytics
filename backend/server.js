@@ -91,14 +91,19 @@ app.get("/api/proxy-image", async (req, res) => {
 
 app.post("/api/youtube", async (req, res) => {
   try {
-    const { url, video_id } = req.body;
+    const { url, video_id, session_id } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     const data = await getYouTubeData(url);
     if (video_id) data.metadata.video_id = video_id;
+    if (video_id) {
+      const store = await getStore();
+      await store.deleteVideoChunks(video_id, session_id || undefined);
+      console.log(`YouTube ${video_id}: cleared previous transcript chunks before replacing video data`);
+    }
     res.json(data);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.message === "Invalid YouTube URL" ? 400 : 502).json({ error: err.message });
   }
 });
 
@@ -128,27 +133,34 @@ app.post("/api/instagram", async (req, res) => {
 app.post("/api/ingest", async (req, res) => {
   try {
     const { transcript, video_id, session_id } = req.body;
-    if (!transcript || !video_id)
-      return res.status(400).json({ error: "transcript and video_id are required" });
+    if (!Array.isArray(transcript) || !video_id)
+      return res.status(400).json({ error: "A transcript and video_id are required" });
 
     const store = await getStore();
     const ns = session_id || undefined;
-
     const chunks = chunkTranscript(transcript, video_id);
+    await store.deleteVideoChunks(video_id, ns);
+    if (chunks.length === 0)
+      return res.status(400).json({ error: "Transcript contains no text to ingest; previous chunks were cleared" });
+
     const embedded = await embedChunks(chunks);
+    if (embedded.length === 0)
+      return res.status(502).json({ error: "Transcript chunks could not be embedded" });
     const count = await store.addChunks(embedded, ns);
 
     console.log(`Ingest ${video_id}: ${chunks.length} chunks created, ${embedded.length} embedded, ${count} total in store`);
 
     res.json({ chunks_created: chunks.length, chunks_stored: count });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(502).json({ error: err.message });
   }
 });
 
 app.post("/api/chat", async (req, res) => {
   const { question, history, video_ids, session_id } = req.body;
   if (!question) return res.status(400).json({ error: "Question is required" });
+  if (!Array.isArray(video_ids) || video_ids.length === 0)
+    return res.status(400).json({ error: "Load a video with a transcript before asking a question" });
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
