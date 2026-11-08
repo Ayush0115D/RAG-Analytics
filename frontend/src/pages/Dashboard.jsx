@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchYouTube, fetchInstagram, ingestVideo, streamChat } from "../api";
 import { useTheme } from "../context/ThemeContext";
@@ -74,7 +74,7 @@ function Header({ onLogout }) {
 
   return (
     <header className="sticky top-0 z-40 bg-[var(--bg-body)]/70 backdrop-blur-xl border-b border-[var(--border)]">
-      <div className="max-w-[1280px] mx-auto px-6 h-[68px] flex items-center gap-4">
+      <div className="dashboard-header-inner max-w-[1280px] mx-auto px-6 h-[68px] flex items-center gap-4">
         <div className="flex items-center gap-3 shrink-0">
           <div className="relative">
             <svg width="36" height="36" viewBox="0 0 32 32" fill="none">
@@ -95,9 +95,9 @@ function Header({ onLogout }) {
           </div>
         </div>
 
-        <div className="h-5 w-px bg-[var(--border)]" />
+        <div className="header-divider h-5 w-px bg-[var(--border)]" />
 
-        <div className="flex items-center gap-1.5">
+        <div className="header-platforms flex items-center gap-1.5">
           <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium text-emerald-400 bg-emerald-500/8 border border-emerald-500/15">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/40" />
             YouTube
@@ -109,7 +109,7 @@ function Header({ onLogout }) {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <button onClick={() => setDarkMode(!darkMode)} className="btn-icon" title={darkMode ? "Light mode" : "Dark mode"}>
+          <button onClick={() => setDarkMode(!darkMode)} className="btn-icon" title={darkMode ? "Light mode" : "Dark mode"} aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}>
             {darkMode ? (
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
@@ -166,19 +166,32 @@ function SkeletonVideoCard() {
 }
 
 /* ───────── URL Input Card ───────── */
-function UrlInputCard({ label, platform, placeholder, value, onChange, onFetch, loading, badgeColor }) {
+function UrlInputCard({ label, platform, placeholder, value, onChange, onFetch, loading, connected, badgeColor }) {
   return (
-    <div className="card card-lift dash-entrance">
-      <div className="card-header flex items-center gap-3">
-        <span className={`w-2 h-2 rounded-full ${badgeColor}`} />
-        <h2 className="text-sm font-semibold text-[var(--text-heading)] m-0">{label}</h2>
-        <span className="ml-auto badge" style={{ background: "var(--bg-slate-900)", color: "var(--text-muted)" }}>{platform}</span>
+    <div className={`card source-card card-lift dash-entrance ${label === "YouTube" ? "source-card-youtube" : "source-card-instagram"}`}>
+      <div className="card-header source-card-header flex items-center gap-3">
+        <span className={`source-icon ${badgeColor}`} aria-hidden="true">
+          {label === "YouTube" ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2 31.7 31.7 0 0 0 0 12a31.7 31.7 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1A31.7 31.7 0 0 0 24 12a31.7 31.7 0 0 0-.5-5.8ZM9.6 15.6V8.4L15.8 12l-6.2 3.6Z" /></svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r=".75" fill="currentColor" stroke="none" /></svg>
+          )}
+        </span>
+        <div>
+          <p className="source-eyebrow">{platform} SOURCE</p>
+          <h2 className="text-sm font-semibold text-[var(--text-heading)] m-0">{label}</h2>
+        </div>
+        <span className={`source-status ml-auto ${connected ? "is-connected" : ""}`}>
+          <span className="source-status-dot" />
+          {loading ? "Fetching…" : connected ? "Connected" : "Ready to connect"}
+        </span>
       </div>
       <div className="card-body">
-        <label className="text-xs text-[var(--text-secondary)] mb-2 block">Video URL</label>
-        <div className="flex gap-2.5">
-          <input type="text" placeholder={placeholder} className="input-field flex-1" value={value} onChange={onChange} />
-          <button onClick={onFetch} disabled={loading} className="btn-primary" style={{ minWidth: 80 }}>
+        <label className="source-label" htmlFor={`source-url-${platform}`}>Paste a video link</label>
+        <p className="source-description">{label === "YouTube" ? "Analyze a video or YouTube Short." : "Analyze an Instagram Reel or post."}</p>
+        <div className="source-input-row flex gap-2.5">
+          <input id={`source-url-${platform}`} type="url" inputMode="url" autoComplete="url" placeholder={placeholder} className="input-field flex-1" value={value} onChange={onChange} aria-label={`${label} video URL`} />
+          <button onClick={onFetch} disabled={loading} className="btn-primary source-fetch-button">
             {loading ? <Spinner /> : "Fetch"}
           </button>
         </div>
@@ -188,7 +201,7 @@ function UrlInputCard({ label, platform, placeholder, value, onChange, onFetch, 
 }
 
 /* ───────── Video Card ───────── */
-function VideoCard({ data, label, loading, error, url, isYT }) {
+function VideoCard({ data, label, loading, error, ingestError, url, isYT }) {
   if (loading) return <SkeletonVideoCard />;
 
   if (error) {
@@ -206,13 +219,15 @@ function VideoCard({ data, label, loading, error, url, isYT }) {
 
   if (!data) {
     return (
-      <div className="card min-h-[220px] flex items-center justify-center card-lift">
-        <div className="text-center">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3 opacity-40">
+      <div className="card video-empty-card min-h-[220px] flex items-center justify-center card-lift">
+        <div className="video-empty-content text-center">
+          <span className="video-empty-icon">
+            <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
             <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" /><line x1="7" y1="2" x2="7" y2="22" /><line x1="17" y1="2" x2="17" y2="22" /><line x1="2" y1="12" x2="22" y2="12" /><line x1="2" y1="7" x2="7" y2="7" /><line x1="2" y1="17" x2="7" y2="17" /><line x1="17" y1="7" x2="22" y2="7" /><line x1="17" y1="17" x2="22" y2="17" />
-          </svg>
-          <p className="text-sm text-[var(--text-muted)]">No video loaded</p>
-          <p className="text-xs text-[var(--text-muted)] mt-1 opacity-60">Enter a URL above and click Fetch</p>
+            </svg>
+          </span>
+          <p className="video-empty-title">Your {label} analysis will appear here</p>
+          <p className="video-empty-hint">Add a public video link above to see its insights.</p>
         </div>
       </div>
     );
@@ -266,9 +281,11 @@ function VideoCard({ data, label, loading, error, url, isYT }) {
           <span className="opacity-30">·</span>
           <span>{Math.floor(m.duration / 60)}:{(m.duration % 60).toString().padStart(2, "0")}</span>
         </div>
-        {!data.transcript?.length && (
+        {(!data.transcript?.length || ingestError) && (
           <p className="text-xs text-amber-400 m-0">
-            {data.transcript_error || "No transcript was available for this video."}
+            {ingestError
+              ? `Video loaded, but transcript indexing failed: ${ingestError}`
+              : data.transcript_error || "No transcript was available for this video."}
           </p>
         )}
         {m.hashtags?.length > 0 && (
@@ -321,11 +338,16 @@ function ChatMessage({ msg, onSourceClick }) {
 function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessagesChange, videoIds }) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const bottomRef = useRef(null);
+  const messagesRef = useRef(null);
   const messages = externalMessages || [];
   const setMessages = onMessagesChange || (() => {});
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => {
+    const container = messagesRef.current;
+    if (container && messages.length > 0) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    }
+  }, [messages, messages.length]);
 
   function handleSend() {
     const q = input.trim();
@@ -355,7 +377,7 @@ function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessa
   }
 
   return (
-    <div className="card flex flex-col h-[520px] card-lift dash-entrance" style={{ animationDelay: "0.35s" }}>
+    <div className="card dashboard-chat flex flex-col card-lift dash-entrance" style={{ animationDelay: "0.35s" }}>
       <div className="card-header flex items-center gap-3">
         <div className="flex items-center gap-2.5">
           <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-lg shadow-cyan-500/30" />
@@ -374,7 +396,7 @@ function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessa
         </div>
       </div>
 
-      <div className="chat-messages flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+      <div ref={messagesRef} className="chat-messages flex-1 overflow-y-auto p-4 flex flex-col gap-3">
         {messages.length === 0 && (
           <div className="text-center text-[var(--text-muted)] m-auto">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3 opacity-30">
@@ -384,7 +406,6 @@ function ChatPanel({ disabled, hasBoth, onSourceClick, externalMessages, onMessa
           </div>
         )}
         {messages.map((msg, i) => <ChatMessage key={i} msg={msg} onSourceClick={onSourceClick} />)}
-        <div ref={bottomRef} />
       </div>
 
       <div className="flex gap-2.5 px-5 py-4 border-t border-[var(--border)]">
@@ -406,19 +427,21 @@ function LinkHistory({ links, onLoad, onClear }) {
   const empty = links.length === 0;
   return (
     <div className="card card-lift dash-entrance" style={{ animationDelay: "0.4s" }}>
-      <div className="card-header flex items-center gap-3 cursor-pointer select-none" onClick={() => setCollapsed(!collapsed)}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-        </svg>
-        <h2 className="text-sm font-semibold text-[var(--text-heading)] m-0">Link History</h2>
-        <span className="text-[10px] text-[var(--text-muted)] ml-1">({links.length})</span>
-        <div className="ml-auto flex items-center gap-2">
-          {!empty && <button onClick={(e) => { e.stopPropagation(); onClear(); }} className="btn-ghost text-[11px]">Clear</button>}
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      <div className="card-header link-history-header">
+        <button type="button" className="link-history-toggle" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+          <h2 className="text-sm font-semibold text-[var(--text-heading)] m-0">Link History</h2>
+          <span className="text-[10px] text-[var(--text-muted)]">({links.length})</span>
+          <svg className="link-history-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
             style={{ transform: collapsed ? "rotate(-90deg)" : "rotate(0)", transition: "transform 0.2s ease" }}>
             <polyline points="6 9 12 15 18 9" />
           </svg>
+        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {!empty && <button onClick={onClear} className="btn-ghost text-[11px]">Clear</button>}
         </div>
       </div>
       {!collapsed && (
@@ -496,6 +519,8 @@ export default function Dashboard() {
   const [loadingB, setLoadingB] = useState(false);
   const [errorA, setErrorA] = useState("");
   const [errorB, setErrorB] = useState("");
+  const [ingestErrorA, setIngestErrorA] = useState("");
+  const [ingestErrorB, setIngestErrorB] = useState("");
   const [chatMessages, setChatMessages] = useState(saved.current?.chatMessages || []);
   const [linkHistory, setLinkHistory] = useState(saved.current?.linkHistory || []);
 
@@ -522,27 +547,41 @@ export default function Dashboard() {
     const setData = videoId === "A" ? setVideoA : setVideoB;
     const setLoading = videoId === "A" ? setLoadingA : setLoadingB;
     const setError = videoId === "A" ? setErrorA : setErrorB;
+    const setIngestError = videoId === "A" ? setIngestErrorA : setIngestErrorB;
     const fetcher = videoId === "A" ? fetchYouTube : fetchInstagram;
     const platform = videoId === "A" ? "youtube" : "instagram";
     setLoading(true);
     setError("");
+    setIngestError("");
     setData(null);
     setChatMessages([]);
     try {
       const data = await fetcher(url, videoId);
       setData(data);
       const hasTranscript = Array.isArray(data.transcript) && data.transcript.length > 0;
-      if (hasTranscript) await ingestVideo(data.transcript, videoId);
+      let ingestError = "";
+      if (hasTranscript) {
+        try {
+          await ingestVideo(data.transcript, videoId);
+        } catch (err) {
+          ingestError = err.message;
+          setIngestError(ingestError);
+        }
+      }
       setLinkHistory((prev) => {
         const next = [...prev, { id: Date.now(), url, platform, videoId, timestamp: new Date().toLocaleString() }];
         return next.length > 20 ? next.slice(next.length - 20) : next;
       });
-      notify(
-        hasTranscript ? "success" : "info",
-        hasTranscript
-          ? `${videoId === "A" ? "YouTube" : "Instagram"} video fetched & ingested`
-          : data.transcript_error || "Video loaded, but no transcript was available."
-      );
+      if (ingestError) {
+        notify("error", `Video loaded, but transcript indexing failed: ${ingestError}`);
+      } else {
+        notify(
+          hasTranscript ? "success" : "info",
+          hasTranscript
+            ? `${videoId === "A" ? "YouTube" : "Instagram"} video fetched & ingested`
+            : data.transcript_error || "Video loaded, but no transcript was available."
+        );
+      }
     } catch (err) {
       setError(err.message);
       notify("error", err.message);
@@ -585,27 +624,91 @@ export default function Dashboard() {
         </div>
       )}
 
-      <main className="flex-1 max-w-[1280px] mx-auto w-full p-6 space-y-6">
+      <main className="dashboard-main flex-1 max-w-[1280px] mx-auto w-full p-6">
+        <section className="dashboard-hero dash-entrance" aria-labelledby="dashboard-title">
+          <div className="dashboard-hero-copy">
+            <span className="dashboard-eyebrow">
+              <span className="dashboard-eyebrow-dot" />
+              YOUR VIDEO WORKSPACE
+            </span>
+            <h1 id="dashboard-title">Turn videos into <span>clear insights.</span></h1>
+            <p>Bring your YouTube and Instagram content together, explore the numbers, and ask questions in plain language.</p>
+            <div className="dashboard-stats" aria-label="Workspace summary">
+              <div className="dashboard-stat">
+                <span className="dashboard-stat-value">{Number(!!videoA) + Number(!!videoB)}<span>/2</span></span>
+                <span className="dashboard-stat-label">Videos loaded</span>
+              </div>
+              <div className="dashboard-stat">
+                <span className="dashboard-stat-value">{Number(!!videoA?.transcript?.length) + Number(!!videoB?.transcript?.length)}<span>/2</span></span>
+                <span className="dashboard-stat-label">AI-ready transcripts</span>
+              </div>
+              <div className="dashboard-stat">
+                <span className="dashboard-stat-value">{linkHistory.length}</span>
+                <span className="dashboard-stat-label">Saved links</span>
+              </div>
+            </div>
+          </div>
+          <div className="dashboard-workflow">
+            <div className="workflow-heading">
+              <span className="workflow-heading-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.64 5.64l2.12 2.12m8.48 8.48 2.12 2.12m0-12.72-2.12 2.12m-8.48 8.48-2.12 2.12" /><circle cx="12" cy="12" r="4" /></svg>
+              </span>
+              <div>
+                <p className="workflow-kicker">GETTING STARTED</p>
+                <h2>Your insight workflow</h2>
+              </div>
+            </div>
+            <ol className="workflow-steps">
+              <li className={videoA || videoB ? "is-complete" : "is-current"}>
+                <span className="workflow-step-number">{videoA || videoB ? "✓" : "01"}</span>
+                <span><strong>Add a video</strong><small>Paste a link from either platform</small></span>
+              </li>
+              <li className={videoA?.metadata && videoB?.metadata ? "is-complete" : videoA?.metadata || videoB?.metadata ? "is-current" : ""}>
+                <span className="workflow-step-number">{videoA?.metadata && videoB?.metadata ? "✓" : "02"}</span>
+                <span><strong>Explore performance</strong><small>Review engagement and details</small></span>
+              </li>
+              <li className={videoA?.transcript?.length || videoB?.transcript?.length ? "is-complete" : ""}>
+                <span className="workflow-step-number">{videoA?.transcript?.length || videoB?.transcript?.length ? "✓" : "03"}</span>
+                <span><strong>Ask your content</strong><small>Chat with video transcripts</small></span>
+              </li>
+            </ol>
+          </div>
+        </section>
+
+        <div className="dashboard-section-heading">
+          <div>
+            <span className="dashboard-section-kicker">STEP 1 · CONNECT</span>
+            <h2>Add your video sources</h2>
+          </div>
+          <p>Choose one or both platforms to get started</p>
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <UrlInputCard label="YouTube" platform="Video A" placeholder="https://youtube.com/watch?v=..."
             value={ytUrl} onChange={(e) => setYtUrl(e.target.value)} onFetch={() => handleFetch("A")}
-            loading={loadingA} badgeColor="bg-emerald-500" />
+            loading={loadingA} connected={!!videoA} badgeColor="bg-emerald-500" />
           <UrlInputCard label="Instagram" platform="Video B" placeholder="https://instagram.com/reel/..."
             value={igUrl} onChange={(e) => setIgUrl(e.target.value)} onFetch={() => handleFetch("B")}
-            loading={loadingB} badgeColor="bg-purple-500" />
+            loading={loadingB} connected={!!videoB} badgeColor="bg-purple-500" />
         </div>
 
+        <div className="dashboard-section-heading analysis-section-heading">
+          <div>
+            <span className="dashboard-section-kicker">STEP 2 · EXPLORE</span>
+            <h2>Your video analysis</h2>
+          </div>
+          <span className="analysis-count">{Number(!!videoA) + Number(!!videoB)} of 2 videos loaded</span>
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <div className="dash-entrance" style={{ animationDelay: "0.18s" }}>
-            <VideoCard data={videoA} label="YouTube URL" url={ytUrl} isYT={true} loading={loadingA} error={errorA} />
+            <VideoCard data={videoA} label="YouTube URL" url={ytUrl} isYT={true} loading={loadingA} error={errorA} ingestError={ingestErrorA} />
           </div>
           <div className="dash-entrance" style={{ animationDelay: "0.25s" }}>
-            <VideoCard data={videoB} label="Instagram URL" loading={loadingB} error={errorB} />
+            <VideoCard data={videoB} label="Instagram URL" loading={loadingB} error={errorB} ingestError={ingestErrorB} />
           </div>
         </div>
 
         <ChatPanel
-          disabled={!(videoA?.transcript?.length || videoB?.transcript?.length)}
+          disabled={!((videoA?.transcript?.length && !ingestErrorA) || (videoB?.transcript?.length && !ingestErrorB))}
           hasBoth={hasBoth}
           onSourceClick={handleSourceClick}
           externalMessages={chatMessages}
